@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqltoolkit"
+version = "0.1.0"
+description = "A toolkit for safe and structured SQL operations"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Amogha Hegde" }]
+
+keywords = ["sql", "database", "postgresql", "toolkit", "query", "orm"]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries",
+]
+
+# Core dependencies (DB agnostic)
+dependencies = [
+    "sqlalchemy>=2.0.48",
+    "alembic>=1.18.4",
+    "alembic-postgresql-enum>=1.10.0",
+    "alembic-utils>=0.8.8",
+    "pytz"
+]
+
+[project.optional-dependencies]
+
+postgresql = [
+    "asyncpg>=0.31.0",
+    "psycopg2-binary>=2.9.11"
+]
+
+oracle = [
+    "oracledb>=3.4.2"
+]
+
+sqlite = []
+
+# Install everything explicitly
+all = [
+    "asyncpg>=0.31.0",
+    "psycopg2-binary>=2.9.11",
+    "oracledb>=3.4.2"
+]
+
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy"
+]
+
+[project.urls]
+Homepage = "https://github.com/Amogha-Hegde/sqltoolkit"
+Repository = "https://github.com/Amogha-Hegde/sqltoolkit"
+Issues = "https://github.com/Amogha-Hegde/sqltoolkit/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sqltoolkit*"]
+
+[tool.setuptools]
+include-package-data = true
