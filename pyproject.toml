@@ -11,7 +11,7 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Amogha Hegde" }]
 
-keywords = ["sql", "database", "postgresql", "toolkit", "query", "orm"]
+keywords = ["sql", "database", "postgresql", "oracle", "mysql", "mssql", "sqlite", "toolkit"]
 
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -25,7 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 
-# Core dependencies (DB agnostic)
 dependencies = [
     "sqlalchemy>=2.0.48",
     "alembic>=1.18.4",
@@ -38,27 +37,40 @@ dependencies = [
 
 postgresql = [
     "asyncpg>=0.31.0",
-    "psycopg2-binary>=2.9.11"
+    "psycopg[binary]>=3.1"
 ]
 
 oracle = [
     "oracledb>=3.4.2"
 ]
 
+mysql = [
+    "pymysql>=1.1.2"
+]
+
+mssql = [
+    "python-tds>=1.17.1",
+    "pyodbc>=5.3.0"
+]
+
 sqlite = []
 
-# Install everything explicitly
 all = [
     "asyncpg>=0.31.0",
-    "psycopg2-binary>=2.9.11",
-    "oracledb>=3.4.2"
+    "psycopg[binary]>=3.1",
+    "oracledb>=3.4.2",
+    "pymysql>=1.1.2",
+    "python-tds>=1.17.1",
+    "pyodbc>=5.3.0"
 ]
 
 dev = [
-    "pytest",
-    "pytest-cov",
-    "ruff",
-    "mypy"
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "build",
+    "twine"
 ]
 
 [project.urls]
