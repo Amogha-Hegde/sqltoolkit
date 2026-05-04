@@ -355,7 +355,7 @@ def _coerce_bool(value: Any) -> bool:
 def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
     data: dict[str, Any] = {}
 
-    db_url = env.get(f"{prefix}__DB_URL")
+    db_url = env.get(f"{prefix}__DB_URL") or env.get(f"{prefix}__URL")
     if db_url:
         data["db_url"] = db_url
 
@@ -436,6 +436,9 @@ def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
         data["database_options"] = database_options
 
     engine_options = _json_env(env, f"{prefix}__ENGINE_OPTIONS", {})
+    options = _json_env(env, f"{prefix}__OPTIONS", {})
+    if options:
+        engine_options.update(options)
     if engine_options:
         data["engine_options"] = engine_options
 

@@ -540,6 +540,8 @@ Oracle currently includes concrete implementations in those folders, and the oth
 
 Sample configuration files for every supported dialect are available in [examples/configs](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs). Commentary for those examples is in [examples/configs/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs/README.md).
 
+Sample environment files for every supported dialect are available in [examples/env](/Users/amogha/PycharmProjects/sqltoolkit/examples/env). Notes for those examples are in [examples/env/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/env/README.md).
+
 ## Registry Operations
 
 ```python
