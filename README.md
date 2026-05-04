@@ -37,6 +37,8 @@ SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__POOL_PRE_PING
 SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ECHO
 SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__CONNECT_ARGS
 SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__QUERY
+SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DATABASE_OPTIONS
+SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__SESSION_SETTINGS
 SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ENGINE_OPTIONS
 ```
 
@@ -98,9 +100,11 @@ Supported structured fields by dialect:
 Common file-config extras:
 
 - `db_url` or `url`: raw SQLAlchemy database URL
-- `query`: URL query parameters
+- `database_options`: database URL/query parameters such as PostgreSQL `application_name`
+- `query`: alias for `database_options`
+- `session_settings`: backend session settings applied when a new DBAPI connection is created
 - `engine_options`: SQLAlchemy `create_engine` / `create_async_engine` kwargs
-- `database_options`: alias for `engine_options` in file configs
+- `options`: alias for `engine_options` in file configs
 
 ### 3. File-based configuration
 
@@ -179,7 +183,7 @@ max_overflow = 10
 pool_pre_ping = true
 ```
 
-JSON with `db_url` and database options:
+JSON with `db_url`, database options, and SQLAlchemy engine options:
 
 ```json
 {
@@ -188,10 +192,10 @@ JSON with `db_url` and database options:
       "default": {
         "readwrite": {
           "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
-          "query": {
+          "database_options": {
             "application_name": "sqltoolkit"
           },
-          "database_options": {
+          "engine_options": {
             "pool_recycle": 1800,
             "pool_use_lifo": true
           }
@@ -202,18 +206,245 @@ JSON with `db_url` and database options:
 }
 ```
 
-INI with `db_url` and database options:
+INI with `db_url`, database options, and SQLAlchemy engine options:
 
 ```ini
 [databases.postgresql.default.readwrite]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.readwrite.query]
+[databases.postgresql.default.readwrite.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.readwrite.database_options]
+[databases.postgresql.default.readwrite.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
+```
+
+Structured session settings by backend:
+
+- PostgreSQL: `session_settings` becomes `SELECT pg_catalog.set_config(...)`
+- MySQL: `session_settings` becomes `SET SESSION ...`
+- Oracle: `session_settings` becomes `ALTER SESSION SET ...`
+- MSSQL: `session_settings` becomes `SET ...`; string values are emitted as raw T-SQL tokens, so values like `READ COMMITTED` should be written exactly as intended
+- SQLite: `session_settings` becomes `PRAGMA ...`
+
+PostgreSQL sample JSON:
+
+```json
+{
+  "databases": {
+    "postgresql": {
+      "default": {
+        "readwrite": {
+          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+          "database_options": {
+            "application_name": "sqltoolkit"
+          },
+          "session_settings": {
+            "search_path": "app, public",
+            "statement_timeout": "30000",
+            "lock_timeout": "5000",
+            "idle_in_transaction_session_timeout": "60000",
+            "deadlock_timeout": "1000",
+            "default_transaction_isolation": "read committed",
+            "default_transaction_read_only": false,
+            "default_transaction_deferrable": false,
+            "jit": false,
+            "max_parallel_workers_per_gather": 2,
+            "work_mem": "64MB",
+            "maintenance_work_mem": "256MB",
+            "random_page_cost": 1.1,
+            "effective_cache_size": "4GB",
+            "log_min_duration_statement": 250,
+            "TimeZone": "UTC",
+            "DateStyle": "ISO, MDY",
+            "row_security": true
+          },
+          "engine_options": {
+            "pool_recycle": 1800,
+            "pool_use_lifo": true
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+PostgreSQL sample INI:
+
+```ini
+[databases.postgresql.default.readwrite]
+db_url = postgresql+psycopg://user:password@localhost:5432/app
+
+[databases.postgresql.default.readwrite.database_options]
+application_name = sqltoolkit
+
+[databases.postgresql.default.readwrite.session_settings]
+search_path = app, public
+statement_timeout = 30000
+lock_timeout = 5000
+idle_in_transaction_session_timeout = 60000
+deadlock_timeout = 1000
+default_transaction_isolation = read committed
+default_transaction_read_only = false
+default_transaction_deferrable = false
+jit = false
+max_parallel_workers_per_gather = 2
+work_mem = 64MB
+maintenance_work_mem = 256MB
+random_page_cost = 1.1
+effective_cache_size = 4GB
+log_min_duration_statement = 250
+TimeZone = UTC
+DateStyle = ISO, MDY
+row_security = true
+
+[databases.postgresql.default.readwrite.engine_options]
+pool_recycle = 1800
+pool_use_lifo = true
+```
+
+MySQL sample JSON:
+
+```json
+{
+  "databases": {
+    "mysql": {
+      "default": {
+        "readwrite": {
+          "db_url": "mysql+pymysql://user:password@localhost:3306/app",
+          "session_settings": {
+            "sql_mode": "STRICT_ALL_TABLES",
+            "time_zone": "+00:00",
+            "innodb_lock_wait_timeout": 10,
+            "max_execution_time": 5000
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+MySQL sample INI:
+
+```ini
+[databases.mysql.default.readwrite]
+db_url = mysql+pymysql://user:password@localhost:3306/app
+
+[databases.mysql.default.readwrite.session_settings]
+sql_mode = STRICT_ALL_TABLES
+time_zone = +00:00
+innodb_lock_wait_timeout = 10
+max_execution_time = 5000
+```
+
+Oracle sample JSON:
+
+```json
+{
+  "databases": {
+    "oracle": {
+      "default": {
+        "readwrite": {
+          "username": "user",
+          "password": "password",
+          "host": "localhost",
+          "port": 1521,
+          "service_name": "FREEPDB1",
+          "session_settings": {
+            "time_zone": "UTC",
+            "nls_date_format": "YYYY-MM-DD",
+            "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Oracle sample INI:
+
+```ini
+[databases.oracle.default.readwrite]
+username = user
+password = password
+host = localhost
+port = 1521
+service_name = FREEPDB1
+
+[databases.oracle.default.readwrite.session_settings]
+time_zone = UTC
+nls_date_format = YYYY-MM-DD
+nls_timestamp_format = YYYY-MM-DD HH24:MI:SS
+```
+
+MSSQL sample JSON:
+
+```json
+{
+  "databases": {
+    "mssql": {
+      "default": {
+        "readwrite": {
+          "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+          "session_settings": {
+            "LOCK_TIMEOUT": 5000,
+            "XACT_ABORT": true,
+            "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+MSSQL sample INI:
+
+```ini
+[databases.mssql.default.readwrite]
+db_url = mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server
+
+[databases.mssql.default.readwrite.session_settings]
+LOCK_TIMEOUT = 5000
+XACT_ABORT = true
+TRANSACTION ISOLATION LEVEL = READ COMMITTED
+```
+
+SQLite sample JSON:
+
+```json
+{
+  "databases": {
+    "sqlite": {
+      "default": {
+        "readwrite": {
+          "file_path": "./app.db",
+          "session_settings": {
+            "foreign_keys": true,
+            "journal_mode": "WAL",
+            "busy_timeout": 5000
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+SQLite sample INI:
+
+```ini
+[databases.sqlite.default.readwrite]
+file_path = ./app.db
+
+[databases.sqlite.default.readwrite.session_settings]
+foreign_keys = true
+journal_mode = WAL
+busy_timeout = 5000
 ```
 
 ## Notes

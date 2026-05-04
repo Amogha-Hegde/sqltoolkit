@@ -6,7 +6,14 @@ from typing import Any
 
 from sqlalchemy.engine import URL
 
-from sqltoolkit.dialects._shared import ensure_empty, pop_bool, stringify_query
+from sqltoolkit.dialects._shared import (
+    ensure_empty,
+    pop_bool,
+    sql_quote_string,
+    stringify_query,
+    stringify_setting_value,
+    validate_setting_name,
+)
 
 
 def build_sqlite_url(
@@ -40,3 +47,14 @@ def build_sqlite_url(
         database=str(database_name),
         query=stringify_query(query),
     ).render_as_string(hide_password=False)
+
+
+def build_sqlite_session_statements(settings: dict[str, Any]) -> list[str]:
+    statements: list[str] = []
+    for name, value in settings.items():
+        pragma_name = validate_setting_name(str(name), dialect="sqlite")
+        rendered = stringify_setting_value(value, bool_mode="one_zero")
+        if isinstance(value, str):
+            rendered = sql_quote_string(rendered)
+        statements.append(f"PRAGMA {pragma_name} = {rendered}")
+    return statements

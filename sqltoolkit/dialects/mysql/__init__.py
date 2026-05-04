@@ -6,7 +6,14 @@ from typing import Any
 
 from sqlalchemy.engine import URL
 
-from sqltoolkit.dialects._shared import ensure_empty, pop_int, stringify_query
+from sqltoolkit.dialects._shared import (
+    ensure_empty,
+    pop_int,
+    sql_quote_string,
+    stringify_query,
+    stringify_setting_value,
+    validate_setting_name,
+)
 
 
 def build_mysql_url(
@@ -36,3 +43,16 @@ def build_mysql_url(
         database=database,
         query=stringify_query(query),
     ).render_as_string(hide_password=False)
+
+
+def build_mysql_session_statements(settings: dict[str, Any]) -> list[str]:
+    assignments: list[str] = []
+    for name, value in settings.items():
+        setting_name = validate_setting_name(str(name), dialect="mysql")
+        rendered = stringify_setting_value(value, bool_mode="one_zero")
+        if isinstance(value, str):
+            rendered = sql_quote_string(rendered)
+        assignments.append(f"SESSION {setting_name} = {rendered}")
+    if not assignments:
+        return []
+    return ["SET " + ", ".join(assignments)]

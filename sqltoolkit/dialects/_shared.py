@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from typing import Any
 
 from sqlalchemy.engine import URL, make_url
+
+_SIMPLE_SETTING_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_$.]*$")
+_MSSQL_SETTING_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*$")
 
 
 def as_mapping(value: Any) -> dict[str, Any]:
@@ -57,3 +61,46 @@ def normalize_db_url(db_url: str) -> str:
     if isinstance(parsed, URL):
         return parsed.render_as_string(hide_password=False)
     return str(parsed)
+
+
+def merge_db_url_query(db_url: str, query: Mapping[str, Any]) -> str:
+    """Merge extra query parameters into a DB URL.
+
+    Explicit values supplied in ``query`` override the same keys already
+    present in ``db_url``.
+    """
+
+    parsed = make_url(db_url)
+    merged_query = {**parsed.query, **stringify_query(query)}
+    if isinstance(parsed, URL):
+        return parsed.set(query=merged_query).render_as_string(hide_password=False)
+    return str(parsed)
+
+
+def validate_setting_name(name: str, *, dialect: str) -> str:
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError("Session setting names must not be empty")
+
+    pattern = _MSSQL_SETTING_NAME if dialect == "mssql" else _SIMPLE_SETTING_NAME
+    if not pattern.match(stripped):
+        raise ValueError(f"Unsupported {dialect} session setting name: {name!r}")
+    return stripped
+
+
+def sql_quote_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def stringify_setting_value(value: Any, *, bool_mode: str = "true_false") -> str:
+    if isinstance(value, bool):
+        if bool_mode == "on_off":
+            return "on" if value else "off"
+        if bool_mode == "one_zero":
+            return "1" if value else "0"
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(stringify_setting_value(item, bool_mode=bool_mode) for item in value)
+    return str(value)

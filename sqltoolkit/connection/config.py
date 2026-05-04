@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from sqltoolkit.dialects import build_engine_url, build_oracle_connect_args, normalize_dialect
+from sqltoolkit.dialects import (
+    build_engine_url,
+    build_oracle_connect_args,
+    build_session_statements,
+    normalize_dialect,
+)
 
 DEFAULT_ACCESS_MODE = "readwrite"
 VALID_ACCESS_MODES = frozenset({"readonly", "readwrite"})
@@ -21,6 +26,7 @@ ENV_PREFIX = "SQLTOOLKIT"
 class EngineConfig:
     url: str
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
+    on_connect_statements: tuple[str, ...] = field(default_factory=tuple)
 
     def to_engine_kwargs(self) -> dict[str, Any]:
         return {"url": self.url, **self.engine_kwargs}
@@ -29,6 +35,7 @@ class EngineConfig:
         return (
             self.url,
             _freeze_value(self.engine_kwargs),
+            self.on_connect_statements,
         )
 
 
@@ -113,6 +120,7 @@ def config_from_kwargs(
     connect_args: Mapping[str, Any] | None = None,
     query: Mapping[str, Any] | None = None,
     engine_options: Mapping[str, Any] | None = None,
+    session_settings: Mapping[str, Any] | None = None,
     async_mode: bool = False,
     **dialect_options: Any,
 ) -> EngineConfig:
@@ -129,6 +137,7 @@ def config_from_kwargs(
         "connect_args": dict(connect_args or {}),
         "query": dict(query or {}),
         "engine_options": dict(engine_options or {}),
+        "session_settings": dict(session_settings or {}),
     }
     raw_config.update(dialect_options)
 
@@ -147,9 +156,17 @@ def build_engine_config(
     raw_config: Mapping[str, Any],
 ) -> EngineConfig:
     data = dict(raw_config)
+    on_connect_statements = _extract_on_connect_statements(
+        dialect=dialect,
+        raw_config=data,
+    )
     engine_kwargs = _extract_engine_kwargs(dialect=dialect, raw_config=data)
     url = build_engine_url(dialect=dialect, async_mode=async_mode, config=data)
-    config = EngineConfig(url=url, engine_kwargs=engine_kwargs)
+    config = EngineConfig(
+        url=url,
+        engine_kwargs=engine_kwargs,
+        on_connect_statements=on_connect_statements,
+    )
     _validate_engine_config(config)
     return config
 
@@ -161,14 +178,14 @@ def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any
         data["db_url"] = data.pop("url")
 
     engine_options = dict(data.pop("engine_options", {}) or {})
-    database_options = dict(data.pop("database_options", {}) or {})
+    session_settings = dict(data.pop("session_settings", {}) or {})
     options = dict(data.pop("options", {}) or {})
-    if database_options:
-        engine_options.update(database_options)
     if options:
         engine_options.update(options)
     if engine_options:
         data["engine_options"] = engine_options
+    if session_settings:
+        data["session_settings"] = session_settings
 
     return data
 
@@ -218,6 +235,7 @@ def _read_ini_config(raw: str) -> dict[str, Any]:
                 "'[databases.<dialect>.<tenant>.<access_mode>]', "
                 "'[<dialect>.<tenant>.<access_mode>]', "
                 "or those paths with a trailing '.database_options', '.options', '.query', or '.connect_args'"
+                " or '.session_settings'"
             )
 
         current = data
@@ -231,16 +249,17 @@ def _read_ini_config(raw: str) -> dict[str, Any]:
 
         subsection = section_path[4].lower()
         mapped_key = {
-            "database_options": "engine_options",
+            "database_options": "database_options",
+            "query": "query",
             "options": "engine_options",
             "engine_options": "engine_options",
-            "query": "query",
             "connect_args": "connect_args",
+            "session_settings": "session_settings",
         }.get(subsection)
         if mapped_key is None:
             raise ValueError(
                 f"Unsupported INI subsection '{subsection}'. "
-                "Use database_options, options, engine_options, query, or connect_args."
+                "Use database_options, options, engine_options, query, connect_args, or session_settings."
             )
 
         existing = dict(current.get(mapped_key, {}) or {})
@@ -254,7 +273,14 @@ def _coerce_ini_section(section_data: Mapping[str, str]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     int_keys = {"port", "pool_size", "max_overflow"}
     bool_keys = {"pool_pre_ping", "echo", "in_memory"}
-    json_keys = {"connect_args", "query", "engine_options", "database_options", "options"}
+    json_keys = {
+        "connect_args",
+        "query",
+        "engine_options",
+        "database_options",
+        "options",
+        "session_settings",
+    }
 
     for key, value in section_data.items():
         if key in int_keys:
@@ -405,9 +431,17 @@ def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
     if query:
         data["query"] = query
 
+    database_options = _json_env(env, f"{prefix}__DATABASE_OPTIONS", {})
+    if database_options:
+        data["database_options"] = database_options
+
     engine_options = _json_env(env, f"{prefix}__ENGINE_OPTIONS", {})
     if engine_options:
         data["engine_options"] = engine_options
+
+    session_settings = _json_env(env, f"{prefix}__SESSION_SETTINGS", {})
+    if session_settings:
+        data["session_settings"] = session_settings
 
     return data
 
@@ -430,6 +464,17 @@ def _extract_engine_kwargs(
         engine_options["connect_args"] = connect_args
 
     return engine_options
+
+
+def _extract_on_connect_statements(
+    *,
+    dialect: str,
+    raw_config: dict[str, Any],
+) -> tuple[str, ...]:
+    session_settings = dict(raw_config.pop("session_settings", {}) or {})
+    if not session_settings:
+        return ()
+    return tuple(build_session_statements(dialect=dialect, settings=session_settings))
 
 
 def _infer_dialect_from_url(db_url: str | None) -> str:

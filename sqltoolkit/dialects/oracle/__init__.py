@@ -7,7 +7,15 @@ from typing import Any
 
 from sqlalchemy.engine import URL
 
-from sqltoolkit.dialects._shared import as_mapping, ensure_empty, pop_int, stringify_query
+from sqltoolkit.dialects._shared import (
+    as_mapping,
+    ensure_empty,
+    pop_int,
+    sql_quote_string,
+    stringify_query,
+    stringify_setting_value,
+    validate_setting_name,
+)
 from sqltoolkit.dialects.oracle.custom_fields import (
     OracleBoolean,
     OracleJSON,
@@ -85,6 +93,17 @@ def build_oracle_connect_args(config: Mapping[str, Any]) -> dict[str, Any]:
             connect_args.setdefault("password", password)
 
     return connect_args
+
+
+def build_oracle_session_statements(settings: dict[str, Any]) -> list[str]:
+    statements: list[str] = []
+    for name, value in settings.items():
+        setting_name = validate_setting_name(str(name), dialect="oracle")
+        rendered = stringify_setting_value(value)
+        if isinstance(value, str):
+            rendered = sql_quote_string(rendered)
+        statements.append(f"ALTER SESSION SET {setting_name} = {rendered}")
+    return statements
 
 
 register_custom_type("oracle", "json", OracleJSON)

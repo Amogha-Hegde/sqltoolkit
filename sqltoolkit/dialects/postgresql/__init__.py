@@ -6,7 +6,14 @@ from typing import Any
 
 from sqlalchemy.engine import URL
 
-from sqltoolkit.dialects._shared import ensure_empty, pop_int, stringify_query
+from sqltoolkit.dialects._shared import (
+    ensure_empty,
+    pop_int,
+    sql_quote_string,
+    stringify_query,
+    stringify_setting_value,
+    validate_setting_name,
+)
 
 
 def build_postgresql_url(
@@ -32,3 +39,17 @@ def build_postgresql_url(
         database=database,
         query=stringify_query(query),
     ).render_as_string(hide_password=False)
+
+
+def build_postgresql_session_statements(settings: dict[str, Any]) -> list[str]:
+    statements: list[str] = []
+    for name, value in settings.items():
+        setting_name = validate_setting_name(str(name), dialect="postgresql")
+        setting_value = stringify_setting_value(value, bool_mode="on_off")
+        statements.append(
+            "SELECT pg_catalog.set_config("
+            f"{sql_quote_string(setting_name)}, "
+            f"{sql_quote_string(setting_value)}, "
+            "false)"
+        )
+    return statements

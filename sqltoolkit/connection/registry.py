@@ -9,7 +9,7 @@ from threading import RLock
 import time
 from typing import Any, Mapping, cast
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -90,6 +90,7 @@ class EngineRegistry:
         connect_args: Mapping[str, Any] | None = None,
         query: Mapping[str, Any] | None = None,
         engine_options: Mapping[str, Any] | None = None,
+        session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> Engine:
         cls._reset_if_forked()
@@ -104,6 +105,7 @@ class EngineRegistry:
             connect_args=connect_args,
             query=query,
             engine_options=engine_options,
+            session_settings=session_settings,
             async_mode=False,
             **dialect_options,
         )
@@ -132,6 +134,7 @@ class EngineRegistry:
         connect_args: Mapping[str, Any] | None = None,
         query: Mapping[str, Any] | None = None,
         engine_options: Mapping[str, Any] | None = None,
+        session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> AsyncEngine:
         cls._reset_if_forked()
@@ -146,6 +149,7 @@ class EngineRegistry:
             connect_args=connect_args,
             query=query,
             engine_options=engine_options,
+            session_settings=session_settings,
             async_mode=True,
             **dialect_options,
         )
@@ -276,6 +280,7 @@ class EngineRegistry:
 
         try:
             engine = create_engine(**config.to_engine_kwargs())
+            cls._configure_engine(engine, config)
         except Exception as exc:
             cls._record_failure(key=key, fingerprint=fingerprint, error=exc)
             raise
@@ -325,6 +330,7 @@ class EngineRegistry:
 
         try:
             engine = create_async_engine(**config.to_engine_kwargs())
+            cls._configure_engine(engine, config)
         except Exception as exc:
             cls._record_failure(key=key, fingerprint=fingerprint, error=exc)
             raise
@@ -377,6 +383,25 @@ class EngineRegistry:
     @staticmethod
     def _is_async_entry(entry: RegistryEntry) -> bool:
         return isinstance(entry.engine, AsyncEngine)
+
+    @staticmethod
+    def _configure_engine(engine: Engine | AsyncEngine, config: EngineConfig) -> None:
+        if not config.on_connect_statements:
+            return
+
+        target = engine.sync_engine if isinstance(engine, AsyncEngine) else engine
+        statements = config.on_connect_statements
+
+        def run_session_setup(dbapi_connection: Any, connection_record: Any) -> None:
+            del connection_record
+            cursor = dbapi_connection.cursor()
+            try:
+                for statement in statements:
+                    cursor.execute(statement)
+            finally:
+                cursor.close()
+
+        event.listen(target, "connect", run_session_setup)
 
     @classmethod
     def _reset_if_forked(cls) -> None:

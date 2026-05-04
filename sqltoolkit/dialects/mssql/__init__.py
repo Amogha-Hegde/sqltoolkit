@@ -6,7 +6,13 @@ from typing import Any
 
 from sqlalchemy.engine import URL
 
-from sqltoolkit.dialects._shared import ensure_empty, pop_int, stringify_query
+from sqltoolkit.dialects._shared import (
+    ensure_empty,
+    pop_int,
+    stringify_query,
+    stringify_setting_value,
+    validate_setting_name,
+)
 
 
 def build_mssql_url(
@@ -59,3 +65,14 @@ def build_mssql_url(
         database=database,
         query=stringify_query(query),
     ).render_as_string(hide_password=False)
+
+
+def build_mssql_session_statements(settings: dict[str, Any]) -> list[str]:
+    statements: list[str] = []
+    for name, value in settings.items():
+        setting_name = validate_setting_name(str(name), dialect="mssql")
+        rendered = stringify_setting_value(value, bool_mode="on_off").upper()
+        if isinstance(value, str):
+            rendered = str(value)
+        statements.append(f"SET {setting_name} {rendered}")
+    return statements
