@@ -10,6 +10,15 @@ from .mssql import build_mssql_url
 from .mysql import build_mysql_url
 from .oracle import build_oracle_connect_args, build_oracle_url
 from .postgresql import build_postgresql_url
+from .registry import (
+    DialectFunctionNamespace,
+    build_custom_type,
+    call_dialect_function,
+    get_custom_type_factory,
+    get_function_factory,
+    list_custom_types,
+    list_functions,
+)
 from .sqlite import build_sqlite_url
 
 SUPPORTED_DIALECTS = frozenset({"postgresql", "oracle", "mysql", "mssql", "sqlite"})
@@ -44,3 +53,33 @@ def build_engine_url(
         "sqlite": build_sqlite_url,
     }[dialect_name]
     return builder(async_mode=async_mode, config=data, query=query)
+
+
+def get_custom_type(dialect: str, name: str, *args: Any, **kwargs: Any) -> Any:
+    """Instantiate a dialect-specific custom SQLAlchemy type."""
+
+    return build_custom_type(dialect, name, *args, **kwargs)
+
+
+def get_custom_type_class(dialect: str, name: str) -> Any:
+    """Return the registered type factory or class for a dialect-specific custom type."""
+
+    return get_custom_type_factory(dialect, name)
+
+
+def get_dialect_function(dialect: str, name: str, *args: Any, **kwargs: Any) -> Any:
+    """Build a SQL expression for a dialect-specific function."""
+
+    return call_dialect_function(dialect, name, *args, **kwargs)
+
+
+def get_dialect_function_factory(dialect: str, name: str) -> Any:
+    """Return the registered callable or function class for a dialect-specific function."""
+
+    return get_function_factory(dialect, name)
+
+
+def get_dialect_functions(dialect: str) -> DialectFunctionNamespace:
+    """Return an attribute-based namespace for dialect-specific SQL functions."""
+
+    return DialectFunctionNamespace(dialect)

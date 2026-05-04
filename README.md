@@ -149,6 +149,76 @@ databases:
 - You can still pass a full `db_url` if you prefer; structured fields are optional.
 - If passwords contain reserved URL characters such as `@`, `:`, `/`, `#`, `%`, or spaces, prefer structured fields like `username` and `password` instead of a raw `db_url`. Structured config is encoded safely for you.
 
+## Dialect-Specific Custom Types And Functions
+
+`sqltoolkit` can also expose dialect-specific SQLAlchemy types and SQL function helpers.
+
+Example for Oracle:
+
+```python
+from sqlalchemy import select
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from sqltoolkit.dialects import (
+    get_custom_type,
+    get_dialect_function,
+    get_dialect_functions,
+    list_custom_types,
+    list_functions,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+oracle_json = get_custom_type("oracle", "json")
+oracle_bool = get_custom_type("oracle", "boolean")
+oracle_dt = get_custom_type("oracle", "timezone_aware_datetime", target_timezone="Asia/Kolkata")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    payload: Mapped[dict] = mapped_column(oracle_json)
+    is_active: Mapped[bool] = mapped_column(oracle_bool)
+    created_at: Mapped[str] = mapped_column(oracle_dt)
+
+
+oracle_funcs = get_dialect_functions("oracle")
+
+stmt = select(
+    oracle_funcs.sysdate(),
+    oracle_funcs.systimestamp(),
+    oracle_funcs.json_value(AuditLog.payload, "$.event"),
+)
+
+fallback_stmt = select(get_dialect_function("oracle", "nvl", AuditLog.payload, "{}"))
+
+print(list_custom_types("oracle"))
+print(list_functions("oracle"))
+```
+
+Current Oracle custom types:
+
+- `json`
+- `boolean`
+- `bool`
+- `timezone_aware_datetime`
+- `datetime_tz`
+
+Current Oracle function helpers:
+
+- `sysdate`
+- `systimestamp`
+- `json_value`
+- `json_query`
+- `json_object`
+- `nvl`
+- `to_char`
+
+This registry is dialect-scoped, so additional PostgreSQL/MySQL/MSSQL/SQLite custom types and functions can be added later without changing the public API.
+
 ## Registry Operations
 
 ```python

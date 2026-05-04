@@ -1,4 +1,4 @@
-"""Oracle dialect helpers."""
+"""Oracle dialect helpers and Oracle-specific extensions."""
 
 from __future__ import annotations
 
@@ -8,6 +8,22 @@ from typing import Any
 from sqlalchemy.engine import URL
 
 from sqltoolkit.dialects._shared import as_mapping, ensure_empty, pop_int, stringify_query
+from sqltoolkit.dialects.oracle.custom_fields import (
+    OracleBoolean,
+    OracleJSON,
+    OracleTimezoneAwareDateTime,
+)
+from sqltoolkit.dialects.oracle.functions import (
+    oracle_json_object,
+    oracle_json_query,
+    oracle_json_value,
+    oracle_nvl,
+    oracle_paginate,
+    oracle_sysdate,
+    oracle_systimestamp,
+    oracle_to_char,
+)
+from sqltoolkit.dialects.registry import register_custom_type, register_function
 
 
 def build_oracle_url(
@@ -69,3 +85,19 @@ def build_oracle_connect_args(config: Mapping[str, Any]) -> dict[str, Any]:
             connect_args.setdefault("password", password)
 
     return connect_args
+
+
+register_custom_type("oracle", "json", OracleJSON)
+register_custom_type("oracle", "timezone_aware_datetime", OracleTimezoneAwareDateTime)
+register_custom_type("oracle", "datetime_tz", OracleTimezoneAwareDateTime)
+register_custom_type("oracle", "boolean", OracleBoolean)
+register_custom_type("oracle", "bool", OracleBoolean)
+
+register_function("oracle", "sysdate", oracle_sysdate)
+register_function("oracle", "systimestamp", oracle_systimestamp)
+register_function("oracle", "json_value", oracle_json_value)
+register_function("oracle", "nvl", oracle_nvl)
+register_function("oracle", "to_char", oracle_to_char)
+register_function("oracle", "json_query", oracle_json_query)
+register_function("oracle", "json_object", oracle_json_object)
+register_function("oracle", "paginate", oracle_paginate)
