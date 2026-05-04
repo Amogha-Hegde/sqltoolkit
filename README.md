@@ -219,6 +219,19 @@ Current Oracle function helpers:
 
 This registry is dialect-scoped, so additional PostgreSQL/MySQL/MSSQL/SQLite custom types and functions can be added later without changing the public API.
 
+Repository layout for dialect extensions:
+
+```text
+sqltoolkit/dialects/<dialect>/
+├── __init__.py
+├── custom_fields/
+│   └── ...
+└── functions/
+    └── ...
+```
+
+Oracle currently includes concrete implementations in those folders, and the other dialects include the same package structure so custom fields and functions can be added consistently.
+
 ## Registry Operations
 
 ```python
