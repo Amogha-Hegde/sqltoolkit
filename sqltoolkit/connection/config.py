@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
-
-import yaml
 
 from sqltoolkit.dialects import build_engine_url, build_oracle_connect_args, normalize_dialect
 
@@ -98,7 +97,7 @@ def load_config_from_file(
     return build_engine_config(
         dialect=dialect,
         async_mode=async_mode,
-        raw_config=tenant_config,
+        raw_config=_normalize_file_config_entry(tenant_config),
     )
 
 
@@ -155,6 +154,25 @@ def build_engine_config(
     return config
 
 
+def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any]:
+    data = dict(raw_config)
+
+    if "url" in data and "db_url" not in data:
+        data["db_url"] = data.pop("url")
+
+    engine_options = dict(data.pop("engine_options", {}) or {})
+    database_options = dict(data.pop("database_options", {}) or {})
+    options = dict(data.pop("options", {}) or {})
+    if database_options:
+        engine_options.update(database_options)
+    if options:
+        engine_options.update(options)
+    if engine_options:
+        data["engine_options"] = engine_options
+
+    return data
+
+
 def _build_env_prefix(*, dialect: str, tenant: str, access_mode: str) -> str:
     return "__".join(
         [
@@ -173,16 +191,102 @@ def _read_config_file(config_path: str | os.PathLike[str]) -> dict[str, Any]:
 
     raw = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
-    if suffix in {".yaml", ".yml"}:
-        data = yaml.safe_load(raw)
-    elif suffix == ".json":
+    if suffix == ".json":
         data = json.loads(raw)
+    elif suffix == ".ini":
+        data = _read_ini_config(raw)
     else:
-        raise ValueError("Unsupported config file format. Use .yaml, .yml, or .json")
+        raise ValueError("Unsupported config file format. Use .json or .ini")
 
     if not isinstance(data, dict):
         raise ValueError("Config file must contain a top-level mapping")
     return data
+
+
+def _read_ini_config(raw: str) -> dict[str, Any]:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(raw)
+
+    data: dict[str, Any] = {}
+    for section_name in parser.sections():
+        section_path = section_name.split(".")
+        if len(section_path) in {3, 4} and section_path[0] != "databases":
+            section_path = ["databases", *section_path]
+        if len(section_path) not in {4, 5} or section_path[0] != "databases":
+            raise ValueError(
+                "INI sections must look like "
+                "'[databases.<dialect>.<tenant>.<access_mode>]', "
+                "'[<dialect>.<tenant>.<access_mode>]', "
+                "or those paths with a trailing '.database_options', '.options', '.query', or '.connect_args'"
+            )
+
+        current = data
+        for part in section_path[:4]:
+            current = current.setdefault(part, {})
+
+        if len(section_path) == 4:
+            section_data = _coerce_ini_section(dict(parser.items(section_name)))
+            current.update(section_data)
+            continue
+
+        subsection = section_path[4].lower()
+        mapped_key = {
+            "database_options": "engine_options",
+            "options": "engine_options",
+            "engine_options": "engine_options",
+            "query": "query",
+            "connect_args": "connect_args",
+        }.get(subsection)
+        if mapped_key is None:
+            raise ValueError(
+                f"Unsupported INI subsection '{subsection}'. "
+                "Use database_options, options, engine_options, query, or connect_args."
+            )
+
+        existing = dict(current.get(mapped_key, {}) or {})
+        existing.update(_coerce_ini_mapping(dict(parser.items(section_name))))
+        current[mapped_key] = existing
+
+    return data
+
+
+def _coerce_ini_section(section_data: Mapping[str, str]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    int_keys = {"port", "pool_size", "max_overflow"}
+    bool_keys = {"pool_pre_ping", "echo", "in_memory"}
+    json_keys = {"connect_args", "query", "engine_options", "database_options", "options"}
+
+    for key, value in section_data.items():
+        if key in int_keys:
+            result[key] = int(value)
+        elif key in bool_keys:
+            result[key] = _coerce_bool(value)
+        elif key in json_keys:
+            parsed = json.loads(value)
+            if not isinstance(parsed, dict):
+                raise ValueError(f"INI field '{key}' must decode to a JSON object")
+            result[key] = parsed
+        else:
+            result[key] = value
+
+    return result
+
+
+def _coerce_ini_mapping(section_data: Mapping[str, str]) -> dict[str, Any]:
+    return {key: _coerce_ini_scalar(value) for key, value in section_data.items()}
+
+
+def _coerce_ini_scalar(value: str) -> Any:
+    stripped = value.strip()
+    if not stripped:
+        return value
+    lowered = stripped.lower()
+    if lowered in {"true", "false", "yes", "no", "on", "off", "0", "1"}:
+        return _coerce_bool(stripped)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return value
 
 
 def _require_env(env: Mapping[str, str], name: str) -> str:
@@ -319,10 +423,9 @@ def _extract_engine_kwargs(
         if key in raw_config:
             engine_options[key] = raw_config.pop(key)
 
-    connect_args = dict(raw_config.get("connect_args", {}) or {})
+    connect_args = dict(raw_config.pop("connect_args", {}) or {})
     if dialect == "oracle":
         connect_args = build_oracle_connect_args(raw_config)
-    raw_config["connect_args"] = connect_args
     if connect_args:
         engine_options["connect_args"] = connect_args
 

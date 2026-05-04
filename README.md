@@ -95,6 +95,13 @@ Supported structured fields by dialect:
 - `mssql`: `username`, `password`, `host`, `port`, `database`, `dsn_name`, `odbc_connect`, `odbc_driver`, `driver`, `query`
 - `sqlite`: `file_path`, `database`, `in_memory`, `driver`, `query`
 
+Common file-config extras:
+
+- `db_url` or `url`: raw SQLAlchemy database URL
+- `query`: URL query parameters
+- `engine_options`: SQLAlchemy `create_engine` / `create_async_engine` kwargs
+- `database_options`: alias for `engine_options` in file configs
+
 ### 3. File-based configuration
 
 ```python
@@ -103,42 +110,110 @@ from sqltoolkit.connection import get_engine_from_file, get_async_engine_from_fi
 engine = get_engine_from_file(
     dialect="postgresql",
     tenant="default",
-    config_path="db_config.yaml",
+    config_path="db_config.json",
     access_mode="readwrite",
 )
 
 async_engine = get_async_engine_from_file(
     dialect="postgresql",
     tenant="default",
-    config_path="db_config.yaml",
+    config_path="db_config.ini",
     access_mode="readonly",
 )
 ```
 
-Example YAML:
+Example JSON:
 
-```yaml
-databases:
-  postgresql:
-    default:
-      readwrite:
-        username: user
-        password: password
-        host: localhost
-        port: 5432
-        database: app
-        pool_size: 10
-        max_overflow: 20
-        pool_pre_ping: true
-      readonly:
-        username: readonly
-        password: password
-        host: localhost
-        port: 5432
-        database: app
-        pool_size: 5
-        max_overflow: 10
-        pool_pre_ping: true
+```json
+{
+  "databases": {
+    "postgresql": {
+      "default": {
+        "readwrite": {
+          "username": "user",
+          "password": "password",
+          "host": "localhost",
+          "port": 5432,
+          "database": "app",
+          "pool_size": 10,
+          "max_overflow": 20,
+          "pool_pre_ping": true
+        },
+        "readonly": {
+          "username": "readonly",
+          "password": "password",
+          "host": "localhost",
+          "port": 5432,
+          "database": "app",
+          "pool_size": 5,
+          "max_overflow": 10,
+          "pool_pre_ping": true
+        }
+      }
+    }
+  }
+}
+```
+
+Example INI:
+
+```ini
+[databases.postgresql.default.readwrite]
+username = user
+password = password
+host = localhost
+port = 5432
+database = app
+pool_size = 10
+max_overflow = 20
+pool_pre_ping = true
+
+[databases.postgresql.default.readonly]
+username = readonly
+password = password
+host = localhost
+port = 5432
+database = app
+pool_size = 5
+max_overflow = 10
+pool_pre_ping = true
+```
+
+JSON with `db_url` and database options:
+
+```json
+{
+  "databases": {
+    "postgresql": {
+      "default": {
+        "readwrite": {
+          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+          "query": {
+            "application_name": "sqltoolkit"
+          },
+          "database_options": {
+            "pool_recycle": 1800,
+            "pool_use_lifo": true
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+INI with `db_url` and database options:
+
+```ini
+[databases.postgresql.default.readwrite]
+db_url = postgresql+psycopg://user:password@localhost:5432/app
+
+[databases.postgresql.default.readwrite.query]
+application_name = sqltoolkit
+
+[databases.postgresql.default.readwrite.database_options]
+pool_recycle = 1800
+pool_use_lifo = true
 ```
 
 ## Notes
