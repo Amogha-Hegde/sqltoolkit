@@ -538,6 +538,8 @@ sqltoolkit/dialects/<dialect>/
 
 Oracle currently includes concrete implementations in those folders, and the other dialects include the same package structure so custom fields and functions can be added consistently.
 
+Sample configuration files for every supported dialect are available in [examples/configs](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs). Commentary for those examples is in [examples/configs/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs/README.md).
+
 ## Registry Operations
 
 ```python

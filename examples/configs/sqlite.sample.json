@@ -1,0 +1,29 @@
+{
+  "databases": {
+    "sqlite": {
+      "default": {
+        "readwrite": {
+          "file_path": "./data/app.db",
+          "session_settings": {
+            "foreign_keys": true,
+            "journal_mode": "WAL",
+            "busy_timeout": 5000
+          },
+          "engine_options": {
+            "pool_pre_ping": true
+          }
+        },
+        "readonly": {
+          "file_path": "./data/app-readonly.db",
+          "session_settings": {
+            "foreign_keys": true,
+            "busy_timeout": 5000
+          },
+          "engine_options": {
+            "pool_pre_ping": true
+          }
+        }
+      }
+    }
+  }
+}
