@@ -40,7 +40,7 @@ def build_oracle_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
-    driver = config.pop("driver", "oracledb")
+    driver = config.pop("driver", None) or "oracledb"
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
     host = config.pop("host", None)

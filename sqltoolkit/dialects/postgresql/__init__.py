@@ -22,7 +22,7 @@ def build_postgresql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
-    driver = config.pop("driver", "asyncpg" if async_mode else "psycopg")
+    driver = config.pop("driver", None) or ("asyncpg" if async_mode else "psycopg")
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
     host = config.pop("host", None)

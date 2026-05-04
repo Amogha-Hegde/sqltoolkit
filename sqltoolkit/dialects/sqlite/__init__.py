@@ -22,7 +22,7 @@ def build_sqlite_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
-    driver = config.pop("driver", "aiosqlite" if async_mode else "pysqlite")
+    driver = config.pop("driver", None) or ("aiosqlite" if async_mode else "pysqlite")
     file_path = config.pop("file_path", None)
     database = config.pop("database", None)
     in_memory = pop_bool(config, "in_memory", False)

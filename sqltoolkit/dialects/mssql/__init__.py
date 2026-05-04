@@ -21,7 +21,7 @@ def build_mssql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
-    driver = config.pop("driver", "aioodbc" if async_mode else "pyodbc")
+    driver = config.pop("driver", None) or ("aioodbc" if async_mode else "pyodbc")
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
     host = config.pop("host", None)

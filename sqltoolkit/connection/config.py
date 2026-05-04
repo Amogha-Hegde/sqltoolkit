@@ -418,10 +418,14 @@ def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
     if f"{prefix}__IN_MEMORY" in env:
         data["in_memory"] = _bool_env(env, f"{prefix}__IN_MEMORY", False)
 
-    data["pool_size"] = _int_env(env, f"{prefix}__POOL_SIZE", 5)
-    data["max_overflow"] = _int_env(env, f"{prefix}__MAX_OVERFLOW", 10)
-    data["pool_pre_ping"] = _bool_env(env, f"{prefix}__POOL_PRE_PING", True)
-    data["echo"] = _bool_env(env, f"{prefix}__ECHO", False)
+    if f"{prefix}__POOL_SIZE" in env:
+        data["pool_size"] = _int_env(env, f"{prefix}__POOL_SIZE", 5)
+    if f"{prefix}__MAX_OVERFLOW" in env:
+        data["max_overflow"] = _int_env(env, f"{prefix}__MAX_OVERFLOW", 10)
+    if f"{prefix}__POOL_PRE_PING" in env:
+        data["pool_pre_ping"] = _bool_env(env, f"{prefix}__POOL_PRE_PING", True)
+    if f"{prefix}__ECHO" in env:
+        data["echo"] = _bool_env(env, f"{prefix}__ECHO", False)
 
     connect_args = _json_env(env, f"{prefix}__CONNECT_ARGS", {})
     if connect_args:
@@ -456,7 +460,13 @@ def _extract_engine_kwargs(
 ) -> dict[str, Any]:
     engine_options = dict(raw_config.pop("engine_options", {}) or {})
 
-    for key in ("pool_size", "max_overflow", "pool_pre_ping", "echo"):
+    pool_option_keys = ("echo",) if dialect == "sqlite" else (
+        "pool_size",
+        "max_overflow",
+        "pool_pre_ping",
+        "echo",
+    )
+    for key in pool_option_keys:
         if key in raw_config:
             engine_options[key] = raw_config.pop(key)
 

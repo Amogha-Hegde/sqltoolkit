@@ -22,7 +22,7 @@ def build_mysql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
-    driver = config.pop("driver", "aiomysql" if async_mode else "pymysql")
+    driver = config.pop("driver", None) or ("aiomysql" if async_mode else "pymysql")
     charset = config.pop("charset", None)
     if charset is not None:
         query.setdefault("charset", charset)
