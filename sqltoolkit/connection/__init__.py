@@ -1,7 +1,11 @@
 """Public connection APIs."""
 
 from .registry import (
+    AsyncEngineRegistry,
+    AsyncSessionRegistry,
     EngineRegistry,
+    SyncEngineRegistry,
+    SyncSessionRegistry,
     get_async_engine,
     get_async_engine_from_file,
     get_engine,
@@ -9,7 +13,11 @@ from .registry import (
 )
 
 __all__ = [
+    "AsyncEngineRegistry",
+    "AsyncSessionRegistry",
     "EngineRegistry",
+    "SyncEngineRegistry",
+    "SyncSessionRegistry",
     "get_engine",
     "get_async_engine",
     "get_engine_from_file",

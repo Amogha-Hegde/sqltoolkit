@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-import types
+from importlib import import_module
 
 import pytest
 
+import sqltoolkit.connection._engine_base as base_module
 import sqltoolkit.connection.registry as registry_module
 from sqltoolkit.connection.config import EngineConfig
 from sqltoolkit.connection.registry import (
+    AsyncEngineRegistry,
     EngineRegistry,
     FailureEntry,
     RegistryEntry,
+    SyncEngineRegistry,
     _get_env_engine,
     _get_file_engine,
     _read_failure_ttl_from_env,
@@ -18,6 +21,11 @@ from sqltoolkit.connection.registry import (
     get_async_engine_from_file,
     get_engine,
 )
+from sqltoolkit.connection.sync.session import SyncSessionRegistry
+
+async_engine_module = import_module("sqltoolkit.connection.async.engine")
+async_session_module = import_module("sqltoolkit.connection.async.session")
+AsyncSessionRegistry = async_session_module.AsyncSessionRegistry
 
 
 class DummySyncEngine:
@@ -34,19 +42,14 @@ class DummyAsyncEngine:
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def _reset_registry_state() -> None:
     EngineRegistry.dispose_all()
-    EngineRegistry._entries.clear()
-    EngineRegistry._failures.clear()
-    EngineRegistry._stats = {
-        "hits": 0,
-        "misses": 0,
-        "evictions": 0,
-        "failure_backoffs": 0,
-        "creations": 0,
-    }
-    EngineRegistry._max_entries = 256
-    EngineRegistry._failure_ttl_seconds = 5.0
+    for registry in (SyncEngineRegistry, AsyncEngineRegistry):
+        registry._entries.clear()
+        registry._failures.clear()
+        registry.reset_stats()
+        registry._max_entries = 256
+        registry._failure_ttl_seconds = 5.0
     yield
     EngineRegistry.dispose_all()
 
@@ -70,9 +73,9 @@ def test_configure_engine_registers_event(monkeypatch: pytest.MonkeyPatch) -> No
     def fake_listen(target: object, event_name: str, fn: object) -> None:
         listened.append((target, event_name, fn))
 
-    monkeypatch.setattr(registry_module.event, "listen", fake_listen)
+    monkeypatch.setattr(base_module.event, "listen", fake_listen)
     engine = DummySyncEngine()
-    EngineRegistry._configure_engine(
+    SyncEngineRegistry._configure_engine(
         engine,
         EngineConfig(url="sqlite://", on_connect_statements=("PRAGMA foreign_keys = 1",)),
     )
@@ -83,14 +86,14 @@ def test_configure_engine_registers_event(monkeypatch: pytest.MonkeyPatch) -> No
 @pytest.mark.unit
 def test_configure_engine_uses_sync_engine_for_async(monkeypatch: pytest.MonkeyPatch) -> None:
     listened: list[object] = []
-    monkeypatch.setattr(registry_module, "AsyncEngine", DummyAsyncEngine)
+    monkeypatch.setattr(base_module, "AsyncEngine", DummyAsyncEngine)
     monkeypatch.setattr(
-        registry_module.event,
+        base_module.event,
         "listen",
         lambda target, event_name, fn: listened.append(target),
     )
     engine = DummyAsyncEngine()
-    EngineRegistry._configure_engine(
+    AsyncEngineRegistry._configure_engine(
         engine,
         EngineConfig(url="sqlite://", on_connect_statements=("PRAGMA busy_timeout = 5000",)),
     )
@@ -122,27 +125,27 @@ def test_set_max_entries_validation_and_getters() -> None:
 
 
 @pytest.mark.unit
-def test_failure_backoff_and_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failure_backoff_and_expiry() -> None:
     error = RuntimeError("boom")
-    EngineRegistry._failures["k"] = FailureEntry(
+    SyncEngineRegistry._failures["k"] = FailureEntry(
         fingerprint=("a",),
         error=error,
-        expires_at=registry_module.time.monotonic() + 10,
+        expires_at=base_module.time.monotonic() + 10,
     )
     with pytest.raises(RuntimeError, match="boom"):
-        EngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("a",))
-    assert EngineRegistry.get_registry_stats()["failure_backoffs"] == 1
+        SyncEngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("a",))
+    assert SyncEngineRegistry.get_registry_stats()["failure_backoffs"] == 1
 
-    EngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("b",))
-    assert "k" not in EngineRegistry._failures
+    SyncEngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("b",))
+    assert "k" not in SyncEngineRegistry._failures
 
-    EngineRegistry._failures["k"] = FailureEntry(
+    SyncEngineRegistry._failures["k"] = FailureEntry(
         fingerprint=("a",),
         error=error,
-        expires_at=registry_module.time.monotonic() - 1,
+        expires_at=base_module.time.monotonic() - 1,
     )
-    EngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("a",))
-    assert "k" not in EngineRegistry._failures
+    SyncEngineRegistry._raise_if_failure_backoff_active(key="k", fingerprint=("a",))
+    assert "k" not in SyncEngineRegistry._failures
 
 
 @pytest.mark.unit
@@ -153,65 +156,61 @@ def test_sync_creation_failure_records_backoff(monkeypatch: pytest.MonkeyPatch) 
         calls["count"] += 1
         raise RuntimeError("create failed")
 
-    monkeypatch.setattr(registry_module, "create_engine", fake_create_engine)
+    monkeypatch.setattr("sqltoolkit.connection.sync.engine.create_engine", fake_create_engine)
     config = EngineConfig(url="sqlite://")
 
     with pytest.raises(RuntimeError, match="create failed"):
-        EngineRegistry._get_or_create_sync_engine(key="k", config=config)
+        SyncEngineRegistry.get_or_create(key="k", config=config)
     with pytest.raises(RuntimeError, match="create failed"):
-        EngineRegistry._get_or_create_sync_engine(key="k", config=config)
+        SyncEngineRegistry.get_or_create(key="k", config=config)
 
     assert calls["count"] == 1
 
 
 @pytest.mark.unit
 def test_async_creation_and_reuse_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(registry_module, "AsyncEngine", DummyAsyncEngine)
-    monkeypatch.setattr(registry_module, "create_async_engine", lambda **kwargs: DummyAsyncEngine())
-    monkeypatch.setattr(registry_module.event, "listen", lambda *args, **kwargs: None)
+    monkeypatch.setattr(base_module, "AsyncEngine", DummyAsyncEngine)
+    monkeypatch.setattr(async_engine_module, "create_async_engine", lambda **kwargs: DummyAsyncEngine())
+    monkeypatch.setattr(base_module.event, "listen", lambda *args, **kwargs: None)
 
     config = EngineConfig(url="sqlite+aiosqlite://", on_connect_statements=("X",))
-    engine = EngineRegistry._get_or_create_async_engine(key="ak", config=config)
-    reused = EngineRegistry._get_or_create_async_engine(key="ak", config=config)
+    engine = AsyncEngineRegistry.get_or_create(key="ak", config=config)
+    reused = AsyncEngineRegistry.get_or_create(key="ak", config=config)
 
     assert engine is reused
-    assert EngineRegistry.get_registry_stats()["hits"] == 1
+    assert AsyncEngineRegistry.get_registry_stats()["hits"] == 1
 
 
 @pytest.mark.unit
-def test_async_registry_conflict_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(registry_module, "AsyncEngine", DummyAsyncEngine)
-    monkeypatch.setattr(registry_module, "create_async_engine", lambda **kwargs: DummyAsyncEngine())
-    monkeypatch.setattr(registry_module.event, "listen", lambda *args, **kwargs: None)
-
-    async_config = EngineConfig("sqlite+aiosqlite://")
-    sync_entry = RegistryEntry(engine=DummySyncEngine(), config=async_config)
-    EngineRegistry._entries["k"] = sync_entry
-    with pytest.raises(ValueError, match="already registered as sync"):
-        EngineRegistry._get_or_create_async_engine(key="k", config=async_config)
+def test_sync_and_async_engine_registries_are_separate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(base_module, "AsyncEngine", DummyAsyncEngine)
+    monkeypatch.setattr(async_engine_module, "create_async_engine", lambda **kwargs: DummyAsyncEngine())
+    monkeypatch.setattr(base_module.event, "listen", lambda *args, **kwargs: None)
 
     sync_config = EngineConfig("sqlite://")
-    async_entry = RegistryEntry(engine=DummyAsyncEngine(), config=sync_config)
-    EngineRegistry._entries.clear()
-    EngineRegistry._entries["k"] = async_entry
-    with pytest.raises(ValueError, match="already registered as async"):
-        EngineRegistry._get_or_create_sync_engine(key="k", config=sync_config)
+    async_config = EngineConfig("sqlite+aiosqlite://")
+    sync_engine = SyncEngineRegistry.get_or_create(key="same", config=sync_config)
+    async_engine = AsyncEngineRegistry.get_or_create(key="same", config=async_config)
+
+    assert sync_engine is not async_engine
+    assert SyncEngineRegistry.list_registry_keys() == ["same"]
+    assert AsyncEngineRegistry.list_registry_keys() == ["same"]
 
 
 @pytest.mark.unit
 def test_reset_if_forked_disposes_entries(monkeypatch: pytest.MonkeyPatch) -> None:
     disposed: list[RegistryEntry] = []
     entry = RegistryEntry(engine=DummySyncEngine(), config=EngineConfig("sqlite://"))
-    EngineRegistry._entries["k"] = entry
-    EngineRegistry._pid = 100
-    monkeypatch.setattr(registry_module.os, "getpid", lambda: 101)
-    monkeypatch.setattr(EngineRegistry, "_dispose_entry", lambda e: disposed.append(e))
+    SyncEngineRegistry._entries["k"] = entry
+    SyncEngineRegistry._pid = 100
+    monkeypatch.setattr(base_module.os, "getpid", lambda: 101)
+    monkeypatch.setattr(SyncEngineRegistry, "_dispose_entry", lambda e: disposed.append(e))
 
-    EngineRegistry._reset_if_forked()
+    SyncEngineRegistry._reset_if_forked()
 
     assert disposed == [entry]
-    assert EngineRegistry._entries == {}
-    assert EngineRegistry._pid == 101
+    assert SyncEngineRegistry._entries == {}
+    assert SyncEngineRegistry._pid == 101
 
 
 @pytest.mark.unit
@@ -219,8 +218,8 @@ def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path)
     config = EngineConfig(url="sqlite://")
     monkeypatch.setattr(registry_module, "load_config_from_env", lambda **kwargs: config)
     monkeypatch.setattr(registry_module, "load_config_from_file", lambda **kwargs: config)
-    monkeypatch.setattr(EngineRegistry, "_get_or_create_sync_engine", lambda **kwargs: "SYNC")
-    monkeypatch.setattr(EngineRegistry, "_get_or_create_async_engine", lambda **kwargs: "ASYNC")
+    monkeypatch.setattr(SyncEngineRegistry, "get_or_create", lambda **kwargs: "SYNC")
+    monkeypatch.setattr(AsyncEngineRegistry, "get_or_create", lambda **kwargs: "ASYNC")
 
     assert _get_env_engine(
         dialect="sqlite",
@@ -246,3 +245,33 @@ def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert get_engine(dialect="sqlite", env={}) == "SYNC"
     assert get_async_engine(dialect="sqlite", env={}) == "ASYNC"
     assert get_async_engine_from_file(dialect="sqlite", config_path="x.ini") == "ASYNC"
+
+
+@pytest.mark.unit
+def test_sync_session_registry_reuses_and_rejects_conflicts() -> None:
+    first_engine = DummySyncEngine()
+    second_engine = DummySyncEngine()
+
+    first = SyncSessionRegistry.get_sessionmaker(key="s", engine=first_engine, expire_on_commit=False)
+    second = SyncSessionRegistry.get_sessionmaker(key="s", engine=first_engine, expire_on_commit=False)
+
+    assert first is second
+    with pytest.raises(ValueError, match="different settings"):
+        SyncSessionRegistry.get_sessionmaker(key="s", engine=second_engine, expire_on_commit=False)
+    assert SyncSessionRegistry.dispose_registry_key("s") is True
+    assert SyncSessionRegistry.dispose_registry_key("s") is False
+
+
+@pytest.mark.unit
+def test_async_session_registry_reuses_and_rejects_conflicts() -> None:
+    first_engine = DummyAsyncEngine()
+    second_engine = DummyAsyncEngine()
+
+    first = AsyncSessionRegistry.get_sessionmaker(key="a", engine=first_engine, expire_on_commit=False)
+    second = AsyncSessionRegistry.get_sessionmaker(key="a", engine=first_engine, expire_on_commit=False)
+
+    assert first is second
+    with pytest.raises(ValueError, match="different settings"):
+        AsyncSessionRegistry.get_sessionmaker(key="a", engine=second_engine, expire_on_commit=False)
+    assert AsyncSessionRegistry.dispose_registry_key("a") is True
+    assert AsyncSessionRegistry.dispose_registry_key("a") is False
