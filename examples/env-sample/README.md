@@ -11,4 +11,4 @@ These sample `.env` files mirror the same config buckets supported by file-based
 - `ENGINE_OPTIONS`: SQLAlchemy engine/pool kwargs
 - `OPTIONS`: alias for `ENGINE_OPTIONS`
 
-Each `*.sample.env` file includes both `READWRITE` and `READONLY` examples for a single dialect.
+Each `*.sample.env` file includes both `PRIMARY` and `REPLICA` examples for a single dialect.

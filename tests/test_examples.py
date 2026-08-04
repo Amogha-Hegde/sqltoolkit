@@ -41,11 +41,11 @@ def test_json_examples_are_valid_json(path: Path) -> None:
     [
         (path, access_mode)
         for path in sorted(CONFIG_EXAMPLES.glob("*.ini"))
-        for access_mode in ("readwrite", "readonly")
+        for access_mode in ("primary", "replica")
     ],
     ids=lambda item: item.name if isinstance(item, Path) else item,
 )
-def test_ini_examples_load_for_both_access_modes(path: Path, access_mode: str) -> None:
+def test_ini_examples_load_for_both_aliases(path: Path, access_mode: str) -> None:
     dialect = path.name.split(".", 1)[0]
     config = load_config_from_file(
         dialect=dialect,
@@ -64,10 +64,10 @@ def test_ini_examples_load_for_both_access_modes(path: Path, access_mode: str) -
         (path, access_mode)
         for path in sorted(ENV_EXAMPLES.iterdir())
         if path.is_file() and path.suffix == ".env"
-        for access_mode in ("readwrite", "readonly")
+        for access_mode in ("primary", "replica")
     ],
 )
-def test_env_examples_load_for_both_access_modes(path: Path, access_mode: str) -> None:
+def test_env_examples_load_for_both_aliases(path: Path, access_mode: str) -> None:
     dialect = path.name.split(".", 1)[0]
     config = load_config_from_env(
         dialect=dialect,

@@ -21,6 +21,7 @@ def build_mssql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build a Microsoft SQL Server SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or ("aioodbc" if async_mode else "pyodbc")
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
@@ -68,6 +69,7 @@ def build_mssql_url(
 
 
 def build_mssql_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build Microsoft SQL Server per-connection setup statements."""
     statements: list[str] = []
     for name, value in settings.items():
         setting_name = validate_setting_name(str(name), dialect="mssql")

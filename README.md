@@ -8,7 +8,7 @@
 - Multi-tenant database routing
 - Centralized configuration
 - Sync and async engine interfaces
-- Separate readonly and readwrite engine registries
+- Separate engine caches by tenant, alias, and sync/async interface
 
 ## Public APIs
 
@@ -17,8 +17,8 @@
 ```python
 from sqltoolkit.connection import get_engine, get_async_engine
 
-engine = get_engine(dialect="postgresql", tenant="tenantA", access_mode="readwrite")
-async_engine = get_async_engine(dialect="postgresql", tenant="tenantA", access_mode="readonly")
+engine = get_engine(dialect="postgresql", tenant="tenantA", access_mode="primary")
+async_engine = get_async_engine(dialect="postgresql", tenant="tenantA", access_mode="replica")
 ```
 
 Environment variable pattern:
@@ -42,20 +42,24 @@ SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__SESSION_SETTINGS
 SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ENGINE_OPTIONS
 ```
 
+`ACCESS_MODE` is an alias segment, not a fixed enum. Use names that match your deployment
+shape, such as `primary`, `replica`, `analytics`, `migration`, or `tenant_admin`.
+Aliases are normalized by trimming whitespace and lowercasing.
+
 Example:
 
 ```text
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__USERNAME=user
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__PASSWORD='p@ss:/# word%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__DATABASE=app
+SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__USERNAME=user
+SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__PASSWORD='p@ss:/# word%'
+SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__HOST=localhost
+SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__PORT=5432
+SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__DATABASE=app
 
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__USERNAME=readonly
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__PASSWORD='r3@d:/# only%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__DATABASE=app
+SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__USERNAME=replica
+SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__PASSWORD='r3@d:/# only%'
+SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__HOST=localhost
+SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__PORT=5432
+SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__DATABASE=app
 ```
 
 ### 2. Global engine registry
@@ -74,7 +78,7 @@ engine = EngineRegistry.get_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    access_mode="readwrite",
+    access_mode="primary",
 )
 
 async_engine = EngineRegistry.get_async_engine(
@@ -85,7 +89,7 @@ async_engine = EngineRegistry.get_async_engine(
     host="localhost",
     port=5432,
     database="mydb",
-    access_mode="readonly",
+    access_mode="replica",
 )
 ```
 
@@ -115,14 +119,14 @@ engine = get_engine_from_file(
     dialect="postgresql",
     tenant="default",
     config_path="db_config.json",
-    access_mode="readwrite",
+    access_mode="primary",
 )
 
 async_engine = get_async_engine_from_file(
     dialect="postgresql",
     tenant="default",
     config_path="db_config.ini",
-    access_mode="readonly",
+    access_mode="replica",
 )
 ```
 
@@ -133,7 +137,7 @@ Example JSON:
   "databases": {
     "postgresql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "username": "user",
           "password": "password",
           "host": "localhost",
@@ -143,8 +147,8 @@ Example JSON:
           "max_overflow": 20,
           "pool_pre_ping": true
         },
-        "readonly": {
-          "username": "readonly",
+        "replica": {
+          "username": "replica",
           "password": "password",
           "host": "localhost",
           "port": 5432,
@@ -162,7 +166,7 @@ Example JSON:
 Example INI:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.default.primary]
 username = user
 password = password
 host = localhost
@@ -172,8 +176,8 @@ pool_size = 10
 max_overflow = 20
 pool_pre_ping = true
 
-[databases.postgresql.default.readonly]
-username = readonly
+[databases.postgresql.default.replica]
+username = replica
 password = password
 host = localhost
 port = 5432
@@ -190,7 +194,7 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
   "databases": {
     "postgresql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
           "database_options": {
             "application_name": "sqltoolkit"
@@ -209,13 +213,13 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
 INI with `db_url`, database options, and SQLAlchemy engine options:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.default.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.readwrite.database_options]
+[databases.postgresql.default.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.readwrite.engine_options]
+[databases.postgresql.default.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -235,7 +239,7 @@ PostgreSQL sample JSON:
   "databases": {
     "postgresql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
           "database_options": {
             "application_name": "sqltoolkit"
@@ -274,13 +278,13 @@ PostgreSQL sample JSON:
 PostgreSQL sample INI:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.default.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.readwrite.database_options]
+[databases.postgresql.default.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.readwrite.session_settings]
+[databases.postgresql.default.primary.session_settings]
 search_path = app, public
 statement_timeout = 30000
 lock_timeout = 5000
@@ -300,7 +304,7 @@ TimeZone = UTC
 DateStyle = ISO, MDY
 row_security = true
 
-[databases.postgresql.default.readwrite.engine_options]
+[databases.postgresql.default.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -312,7 +316,7 @@ MySQL sample JSON:
   "databases": {
     "mysql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "mysql+pymysql://user:password@localhost:3306/app",
           "session_settings": {
             "sql_mode": "STRICT_ALL_TABLES",
@@ -330,10 +334,10 @@ MySQL sample JSON:
 MySQL sample INI:
 
 ```ini
-[databases.mysql.default.readwrite]
+[databases.mysql.default.primary]
 db_url = mysql+pymysql://user:password@localhost:3306/app
 
-[databases.mysql.default.readwrite.session_settings]
+[databases.mysql.default.primary.session_settings]
 sql_mode = STRICT_ALL_TABLES
 time_zone = +00:00
 innodb_lock_wait_timeout = 10
@@ -347,7 +351,7 @@ Oracle sample JSON:
   "databases": {
     "oracle": {
       "default": {
-        "readwrite": {
+        "primary": {
           "username": "user",
           "password": "password",
           "host": "localhost",
@@ -368,14 +372,14 @@ Oracle sample JSON:
 Oracle sample INI:
 
 ```ini
-[databases.oracle.default.readwrite]
+[databases.oracle.default.primary]
 username = user
 password = password
 host = localhost
 port = 1521
 service_name = FREEPDB1
 
-[databases.oracle.default.readwrite.session_settings]
+[databases.oracle.default.primary.session_settings]
 time_zone = UTC
 nls_date_format = YYYY-MM-DD
 nls_timestamp_format = YYYY-MM-DD HH24:MI:SS
@@ -388,7 +392,7 @@ MSSQL sample JSON:
   "databases": {
     "mssql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
           "session_settings": {
             "LOCK_TIMEOUT": 5000,
@@ -405,10 +409,10 @@ MSSQL sample JSON:
 MSSQL sample INI:
 
 ```ini
-[databases.mssql.default.readwrite]
+[databases.mssql.default.primary]
 db_url = mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server
 
-[databases.mssql.default.readwrite.session_settings]
+[databases.mssql.default.primary.session_settings]
 LOCK_TIMEOUT = 5000
 XACT_ABORT = true
 TRANSACTION ISOLATION LEVEL = READ COMMITTED
@@ -421,7 +425,7 @@ SQLite sample JSON:
   "databases": {
     "sqlite": {
       "default": {
-        "readwrite": {
+        "primary": {
           "file_path": "./app.db",
           "session_settings": {
             "foreign_keys": true,
@@ -438,10 +442,10 @@ SQLite sample JSON:
 SQLite sample INI:
 
 ```ini
-[databases.sqlite.default.readwrite]
+[databases.sqlite.default.primary]
 file_path = ./app.db
 
-[databases.sqlite.default.readwrite.session_settings]
+[databases.sqlite.default.primary.session_settings]
 foreign_keys = true
 journal_mode = WAL
 busy_timeout = 5000
@@ -450,7 +454,7 @@ busy_timeout = 5000
 ## Notes
 
 - Sync and async engines are cached separately.
-- Readonly and readwrite engines are cached separately.
+- Different aliases are cached separately.
 - Reusing the same registry key with different settings raises `ValueError`.
 - You can still pass a full `db_url` if you prefer; structured fields are optional.
 - If passwords contain reserved URL characters such as `@`, `:`, `/`, `#`, `%`, or spaces, prefer structured fields like `username` and `password` instead of a raw `db_url`. Structured config is encoded safely for you.
@@ -548,12 +552,12 @@ Sample environment files for every supported dialect are available in [examples/
 from sqltoolkit.connection import EngineRegistry
 
 EngineRegistry.list_registry_keys()
-EngineRegistry.get_engine_config("postgresql:tenantA:readwrite:sync")
+EngineRegistry.get_engine_config("postgresql:tenantA:primary:sync")
 EngineRegistry.set_max_entries(512)
 EngineRegistry.get_registry_size()
 EngineRegistry.get_registry_stats()
-EngineRegistry.dispose_engine(key="default", access_mode="readwrite", async_mode=False)
-EngineRegistry.dispose_registry_key("postgresql:tenantA:readonly:async")
+EngineRegistry.dispose_engine(key="default", access_mode="primary", async_mode=False)
+EngineRegistry.dispose_registry_key("postgresql:tenantA:replica:async")
 EngineRegistry.dispose_all()
 ```
 

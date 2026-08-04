@@ -2,7 +2,7 @@
   "databases": {
     "postgresql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "postgresql+psycopg://app_user:secret@localhost:5432/app",
           "database_options": {
             "application_name": "sqltoolkit"
@@ -35,10 +35,10 @@
             "pool_use_lifo": true
           }
         },
-        "readonly": {
-          "db_url": "postgresql+psycopg://readonly_user:secret@localhost:5432/app",
+        "replica": {
+          "db_url": "postgresql+psycopg://replica_user:secret@localhost:5432/app",
           "database_options": {
-            "application_name": "sqltoolkit-readonly"
+            "application_name": "sqltoolkit-replica"
           },
           "session_settings": {
             "search_path": "app, public",

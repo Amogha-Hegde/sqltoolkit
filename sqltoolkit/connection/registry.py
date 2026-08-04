@@ -35,10 +35,12 @@ AsyncSessionRegistry = _async_session_module.AsyncSessionRegistry
 
 
 def _read_max_entries_from_env() -> int:
+    """Read the configured maximum registry size."""
     return read_max_entries_from_env()
 
 
 def _read_failure_ttl_from_env() -> float:
+    """Read the configured engine creation failure backoff TTL."""
     return read_failure_ttl_from_env()
 
 
@@ -64,6 +66,7 @@ class EngineRegistry:
         session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> Engine:
+        """Return a cached synchronous engine for direct keyword config."""
         return SyncEngineRegistry.get_engine(
             key=key,
             db_url=db_url,
@@ -100,6 +103,7 @@ class EngineRegistry:
         session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> AsyncEngine:
+        """Return a cached asynchronous engine for direct keyword config."""
         return AsyncEngineRegistry.get_engine(
             key=key,
             db_url=db_url,
@@ -126,6 +130,7 @@ class EngineRegistry:
         access_mode: str = DEFAULT_ACCESS_MODE,
         **session_options: Any,
     ) -> sessionmaker[Session]:
+        """Return a cached synchronous SQLAlchemy sessionmaker."""
         return SyncSessionRegistry.get_sessionmaker(
             key=build_named_registry_key(
                 key=key,
@@ -145,6 +150,7 @@ class EngineRegistry:
         access_mode: str = DEFAULT_ACCESS_MODE,
         **session_options: Any,
     ) -> async_sessionmaker[AsyncSession]:
+        """Return a cached asynchronous SQLAlchemy sessionmaker."""
         return AsyncSessionRegistry.get_sessionmaker(
             key=build_named_registry_key(
                 key=key,
@@ -164,6 +170,7 @@ class EngineRegistry:
         access_mode: str = DEFAULT_ACCESS_MODE,
         **session_options: Any,
     ) -> Session:
+        """Create a synchronous Session from a cached sessionmaker."""
         return cls.get_sessionmaker(
             key=key,
             engine=engine,
@@ -180,6 +187,7 @@ class EngineRegistry:
         access_mode: str = DEFAULT_ACCESS_MODE,
         **session_options: Any,
     ) -> AsyncSession:
+        """Create an AsyncSession from a cached async sessionmaker."""
         return cls.get_async_sessionmaker(
             key=key,
             engine=engine,
@@ -189,6 +197,7 @@ class EngineRegistry:
 
     @classmethod
     def dispose_all(cls) -> None:
+        """Dispose every cached engine and sessionmaker."""
         SyncSessionRegistry.dispose_all()
         AsyncSessionRegistry.dispose_all()
         SyncEngineRegistry.dispose_all()
@@ -202,6 +211,7 @@ class EngineRegistry:
         access_mode: str = DEFAULT_ACCESS_MODE,
         async_mode: bool = False,
     ) -> bool:
+        """Dispose one cached engine and its matching sessionmaker by key."""
         registry_key = build_named_registry_key(
             key=key,
             access_mode=normalize_access_mode(access_mode),
@@ -211,6 +221,7 @@ class EngineRegistry:
 
     @classmethod
     def dispose_registry_key(cls, registry_key: str) -> bool:
+        """Dispose one cache entry by its full registry key."""
         removed_session = (
             SyncSessionRegistry.dispose_registry_key(registry_key)
             or AsyncSessionRegistry.dispose_registry_key(registry_key)
@@ -223,6 +234,7 @@ class EngineRegistry:
 
     @classmethod
     def list_registry_keys(cls) -> list[str]:
+        """Return full registry keys for all cached engines."""
         return sorted(
             [
                 *SyncEngineRegistry.list_registry_keys(),
@@ -232,10 +244,12 @@ class EngineRegistry:
 
     @classmethod
     def list_engines(cls) -> list[str]:
+        """Return full registry keys for all cached engines."""
         return cls.list_registry_keys()
 
     @classmethod
     def list_session_registry_keys(cls) -> list[str]:
+        """Return full registry keys for all cached sessionmakers."""
         return sorted(
             [
                 *SyncSessionRegistry.list_registry_keys(),
@@ -245,6 +259,7 @@ class EngineRegistry:
 
     @classmethod
     def get_registry_size(cls) -> int:
+        """Return the total number of cached sync and async engines."""
         return (
             SyncEngineRegistry.get_registry_size()
             + AsyncEngineRegistry.get_registry_size()
@@ -252,6 +267,7 @@ class EngineRegistry:
 
     @classmethod
     def get_session_registry_size(cls) -> int:
+        """Return the total number of cached sync and async sessionmakers."""
         return (
             SyncSessionRegistry.get_registry_size()
             + AsyncSessionRegistry.get_registry_size()
@@ -259,6 +275,7 @@ class EngineRegistry:
 
     @classmethod
     def get_registry_stats(cls) -> dict[str, int]:
+        """Return aggregate sync and async engine registry counters."""
         sync_stats = SyncEngineRegistry.get_registry_stats()
         async_stats = AsyncEngineRegistry.get_registry_stats()
         return {
@@ -280,6 +297,7 @@ class EngineRegistry:
 
     @classmethod
     def get_engine_config(cls, registry_key: str) -> EngineConfig | None:
+        """Return the normalized config for a cached engine, if present."""
         return (
             SyncEngineRegistry.get_engine_config(registry_key)
             or AsyncEngineRegistry.get_engine_config(registry_key)
@@ -287,15 +305,18 @@ class EngineRegistry:
 
     @classmethod
     def set_max_entries(cls, max_entries: int) -> None:
+        """Set the maximum entry count on both sync and async registries."""
         SyncEngineRegistry.set_max_entries(max_entries)
         AsyncEngineRegistry.set_max_entries(max_entries)
 
     @staticmethod
     def _configure_engine(engine: Engine | AsyncEngine, config: EngineConfig) -> None:
+        """Attach per-connection setup hooks to an engine."""
         SyncEngineRegistry._configure_engine(engine, config)
 
     @staticmethod
     def _dispose_entry(entry: RegistryEntry[Any]) -> None:
+        """Dispose a sync or async registry entry."""
         engine = entry.engine
         if isinstance(engine, AsyncEngine):
             AsyncEngineRegistry._dispose_engine(engine)
@@ -304,10 +325,12 @@ class EngineRegistry:
 
     @staticmethod
     def _is_async_entry(entry: RegistryEntry[Any]) -> bool:
+        """Return whether a registry entry contains an AsyncEngine."""
         return isinstance(entry.engine, AsyncEngine)
 
     @classmethod
     def _reset_if_forked(cls) -> None:
+        """Clear child-process registries after a fork."""
         SyncEngineRegistry._reset_if_forked()
         AsyncEngineRegistry._reset_if_forked()
 
@@ -318,6 +341,7 @@ class EngineRegistry:
         key: str,
         config: EngineConfig,
     ) -> Engine:
+        """Return a sync engine from the sync registry."""
         return SyncEngineRegistry.get_or_create(key=key, config=config)
 
     @classmethod
@@ -327,6 +351,7 @@ class EngineRegistry:
         key: str,
         config: EngineConfig,
     ) -> AsyncEngine:
+        """Return an async engine from the async registry."""
         return AsyncEngineRegistry.get_or_create(key=key, config=config)
 
 
@@ -338,18 +363,21 @@ def _get_env_engine(
     async_mode: bool,
     env: Mapping[str, str] | None,
 ) -> Engine | AsyncEngine:
+    """Create or retrieve an engine from environment configuration."""
     dialect_name = normalize_dialect(dialect)
+    alias = normalize_access_mode(access_mode)
+    tenant_name = tenant.strip() or "default"
     config = load_config_from_env(
         dialect=dialect_name,
-        tenant=tenant,
-        access_mode=access_mode,
+        tenant=tenant_name,
+        access_mode=alias,
         async_mode=async_mode,
         env=env,
     )
     registry_key = build_registry_key(
         dialect=dialect_name,
-        tenant=tenant,
-        access_mode=access_mode,
+        tenant=tenant_name,
+        access_mode=alias,
         async_mode=async_mode,
     )
     if async_mode:
@@ -365,18 +393,21 @@ def _get_file_engine(
     access_mode: str,
     async_mode: bool,
 ) -> Engine | AsyncEngine:
+    """Create or retrieve an engine from file configuration."""
     dialect_name = normalize_dialect(dialect)
+    alias = normalize_access_mode(access_mode)
+    tenant_name = tenant.strip() or "default"
     config = load_config_from_file(
         dialect=dialect_name,
-        tenant=tenant,
-        access_mode=access_mode,
+        tenant=tenant_name,
+        access_mode=alias,
         async_mode=async_mode,
         config_path=config_path,
     )
     registry_key = build_registry_key(
         dialect=dialect_name,
-        tenant=tenant,
-        access_mode=access_mode,
+        tenant=tenant_name,
+        access_mode=alias,
         async_mode=async_mode,
     )
     if async_mode:
@@ -391,6 +422,7 @@ def get_engine(
     access_mode: str = DEFAULT_ACCESS_MODE,
     env: Mapping[str, str] | None = None,
 ) -> Engine:
+    """Return a synchronous engine configured from environment variables."""
     return cast(
         Engine,
         _get_env_engine(
@@ -410,6 +442,7 @@ def get_async_engine(
     access_mode: str = DEFAULT_ACCESS_MODE,
     env: Mapping[str, str] | None = None,
 ) -> AsyncEngine:
+    """Return an asynchronous engine configured from environment variables."""
     return cast(
         AsyncEngine,
         _get_env_engine(
@@ -429,6 +462,7 @@ def get_engine_from_file(
     config_path: str,
     access_mode: str = DEFAULT_ACCESS_MODE,
 ) -> Engine:
+    """Return a synchronous engine configured from a JSON or INI file."""
     return cast(
         Engine,
         _get_file_engine(
@@ -448,6 +482,7 @@ def get_async_engine_from_file(
     config_path: str,
     access_mode: str = DEFAULT_ACCESS_MODE,
 ) -> AsyncEngine:
+    """Return an asynchronous engine configured from a JSON or INI file."""
     return cast(
         AsyncEngine,
         _get_file_engine(

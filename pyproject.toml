@@ -41,7 +41,7 @@ postgresql = [
 ]
 
 oracle = [
-    "oracledb>=3.4.2"
+    "oracledb>=4.0.2"
 ]
 
 mysql = [

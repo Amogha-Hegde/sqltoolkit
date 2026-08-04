@@ -16,6 +16,7 @@ class OracleJSON(TypeDecorator):
     cache_ok = False
 
     def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        """Serialize JSON-compatible Python values for Oracle storage."""
         if value is None:
             return None
         if isinstance(value, (dict, list)):
@@ -23,6 +24,7 @@ class OracleJSON(TypeDecorator):
         return value
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
+        """Deserialize Oracle JSON text when possible."""
         if value is None:
             return None
         if isinstance(value, (dict, list)):

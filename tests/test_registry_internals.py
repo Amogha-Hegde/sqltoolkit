@@ -216,18 +216,24 @@ def test_reset_if_forked_disposes_entries(monkeypatch: pytest.MonkeyPatch) -> No
 @pytest.mark.unit
 def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     config = EngineConfig(url="sqlite://")
+    calls: list[dict[str, object]] = []
     monkeypatch.setattr(registry_module, "load_config_from_env", lambda **kwargs: config)
     monkeypatch.setattr(registry_module, "load_config_from_file", lambda **kwargs: config)
-    monkeypatch.setattr(SyncEngineRegistry, "get_or_create", lambda **kwargs: "SYNC")
+    monkeypatch.setattr(
+        SyncEngineRegistry,
+        "get_or_create",
+        lambda **kwargs: calls.append(kwargs) or "SYNC",
+    )
     monkeypatch.setattr(AsyncEngineRegistry, "get_or_create", lambda **kwargs: "ASYNC")
 
     assert _get_env_engine(
         dialect="sqlite",
         tenant="default",
-        access_mode="readwrite",
+        access_mode=" Reporting ",
         async_mode=False,
         env={},
     ) == "SYNC"
+    assert calls[-1]["key"] == "sqlite:default:reporting:sync"
     assert _get_env_engine(
         dialect="sqlite",
         tenant="default",

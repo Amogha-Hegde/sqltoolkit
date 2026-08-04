@@ -13,6 +13,7 @@ _MSSQL_SETTING_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*$")
 
 
 def as_mapping(value: Any) -> dict[str, Any]:
+    """Return a copy of a mapping value, treating empty values as absent."""
     if value in (None, ""):
         return {}
     if not isinstance(value, Mapping):
@@ -21,10 +22,12 @@ def as_mapping(value: Any) -> dict[str, Any]:
 
 
 def stringify_query(query: Mapping[str, Any]) -> dict[str, str]:
+    """Convert URL query parameters to strings for SQLAlchemy URLs."""
     return {str(key): str(value) for key, value in query.items()}
 
 
 def pop_int(config: dict[str, Any], key: str) -> int | None:
+    """Pop an optional integer value from a config mapping."""
     value = config.pop(key, None)
     if value in (None, ""):
         return None
@@ -32,6 +35,7 @@ def pop_int(config: dict[str, Any], key: str) -> int | None:
 
 
 def pop_bool(config: dict[str, Any], key: str, default: bool) -> bool:
+    """Pop an optional boolean value from a config mapping."""
     value = config.pop(key, None)
     if value in (None, ""):
         return default
@@ -43,6 +47,7 @@ def pop_bool(config: dict[str, Any], key: str, default: bool) -> bool:
 
 
 def ensure_empty(config: dict[str, Any], dialect: str) -> None:
+    """Raise if a dialect builder did not consume every config field."""
     leftovers = sorted(config)
     if leftovers:
         raise ValueError(f"Unsupported {dialect} config fields: {', '.join(leftovers)}")
@@ -78,6 +83,7 @@ def merge_db_url_query(db_url: str, query: Mapping[str, Any]) -> str:
 
 
 def validate_setting_name(name: str, *, dialect: str) -> str:
+    """Validate a backend session setting name."""
     stripped = name.strip()
     if not stripped:
         raise ValueError("Session setting names must not be empty")
@@ -89,10 +95,12 @@ def validate_setting_name(name: str, *, dialect: str) -> str:
 
 
 def sql_quote_string(value: str) -> str:
+    """Return a single-quoted SQL string literal."""
     return "'" + value.replace("'", "''") + "'"
 
 
 def stringify_setting_value(value: Any, *, bool_mode: str = "true_false") -> str:
+    """Render a Python setting value as backend session SQL text."""
     if isinstance(value, bool):
         if bool_mode == "on_off":
             return "on" if value else "off"

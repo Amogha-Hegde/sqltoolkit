@@ -20,18 +20,23 @@ EngineT = TypeVar("EngineT", Engine, AsyncEngine)
 
 @dataclass(frozen=True)
 class RegistryEntry(Generic[EngineT]):
+    """Cached engine and its normalized configuration."""
+
     engine: EngineT
     config: EngineConfig
 
 
 @dataclass(frozen=True)
 class FailureEntry:
+    """Cached engine creation failure used for short backoff windows."""
+
     fingerprint: tuple[Any, ...]
     error: Exception
     expires_at: float
 
 
 def read_max_entries_from_env() -> int:
+    """Read the registry size limit from SQLTOOLKIT_REGISTRY_MAX_ENTRIES."""
     raw_value = os.getenv("SQLTOOLKIT_REGISTRY_MAX_ENTRIES", "256")
     try:
         max_entries = int(raw_value)
@@ -41,6 +46,7 @@ def read_max_entries_from_env() -> int:
 
 
 def read_failure_ttl_from_env() -> float:
+    """Read the failure backoff TTL from SQLTOOLKIT_REGISTRY_FAILURE_TTL."""
     raw_value = os.getenv("SQLTOOLKIT_REGISTRY_FAILURE_TTL", "5")
     try:
         ttl_seconds = float(raw_value)
@@ -68,6 +74,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def get_or_create(cls, *, key: str, config: EngineConfig) -> EngineT:
+        """Return an existing engine or create and cache a new one."""
         cls._reset_if_forked()
         fingerprint = config.fingerprint()
         with cls._lock:
@@ -109,6 +116,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def dispose_all(cls) -> None:
+        """Dispose every cached engine and clear failure backoffs."""
         cls._reset_if_forked()
         with cls._lock:
             entries = list(cls._entries.values())
@@ -120,6 +128,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def dispose_registry_key(cls, registry_key: str) -> bool:
+        """Dispose and remove one cached engine by full registry key."""
         cls._reset_if_forked()
         with cls._lock:
             entry = cls._entries.pop(registry_key, None)
@@ -133,18 +142,21 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def list_registry_keys(cls) -> list[str]:
+        """Return all cached engine registry keys."""
         cls._reset_if_forked()
         with cls._lock:
             return sorted(cls._entries)
 
     @classmethod
     def get_registry_size(cls) -> int:
+        """Return the number of cached engines."""
         cls._reset_if_forked()
         with cls._lock:
             return len(cls._entries)
 
     @classmethod
     def get_registry_stats(cls) -> dict[str, int]:
+        """Return registry counters and current cache size."""
         cls._reset_if_forked()
         with cls._lock:
             return {
@@ -159,6 +171,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def get_engine_config(cls, registry_key: str) -> EngineConfig | None:
+        """Return cached engine config and mark the entry recently used."""
         cls._reset_if_forked()
         with cls._lock:
             entry = cls._entries.get(registry_key)
@@ -168,6 +181,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def set_max_entries(cls, max_entries: int) -> None:
+        """Set the cache size limit and evict oldest entries if needed."""
         cls._reset_if_forked()
         if max_entries <= 0:
             raise ValueError("max_entries must be > 0")
@@ -185,6 +199,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def reset_stats(cls) -> None:
+        """Reset registry counters without changing cached engines."""
         with cls._lock:
             cls._stats = {
                 "hits": 0,
@@ -202,6 +217,7 @@ class BaseEngineRegistry(Generic[EngineT]):
         existing: RegistryEntry[EngineT],
         config: EngineConfig,
     ) -> None:
+        """Reject reuse of a key with different normalized config."""
         if existing.config.fingerprint() != config.fingerprint():
             raise ValueError(
                 f"Engine key '{key}' is already registered with different settings"
@@ -209,6 +225,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @staticmethod
     def _configure_engine(engine: Engine | AsyncEngine, config: EngineConfig) -> None:
+        """Attach session setup SQL to each new DBAPI connection."""
         if not config.on_connect_statements:
             return
 
@@ -216,6 +233,7 @@ class BaseEngineRegistry(Generic[EngineT]):
         statements = config.on_connect_statements
 
         def run_session_setup(dbapi_connection: Any, connection_record: Any) -> None:
+            """Run configured setup SQL for one DBAPI connection."""
             del connection_record
             cursor = dbapi_connection.cursor()
             try:
@@ -228,6 +246,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def _reset_if_forked(cls) -> None:
+        """Clear inherited engine objects after process forks."""
         current_pid = os.getpid()
         if current_pid == cls._pid:
             return
@@ -245,6 +264,7 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def _evict_if_needed_locked(cls, *, exclude_key: str) -> list[RegistryEntry[EngineT]]:
+        """Evict least-recently-used entries while holding the registry lock."""
         evicted: list[RegistryEntry[EngineT]] = []
         while len(cls._entries) > cls._max_entries:
             oldest_key, oldest_entry = cls._entries.popitem(last=False)
@@ -262,6 +282,7 @@ class BaseEngineRegistry(Generic[EngineT]):
         key: str,
         fingerprint: tuple[Any, ...],
     ) -> None:
+        """Raise a cached creation error while its backoff window is active."""
         failure = cls._failures.get(key)
         if failure is None:
             return
@@ -282,6 +303,7 @@ class BaseEngineRegistry(Generic[EngineT]):
         fingerprint: tuple[Any, ...],
         error: Exception,
     ) -> None:
+        """Store an engine creation failure for short-term backoff."""
         with cls._lock:
             cls._failures[key] = FailureEntry(
                 fingerprint=fingerprint,
@@ -291,12 +313,15 @@ class BaseEngineRegistry(Generic[EngineT]):
 
     @classmethod
     def _dispose_entry(cls, entry: RegistryEntry[EngineT]) -> None:
+        """Dispose a registry entry's engine."""
         cls._dispose_engine(entry.engine)
 
     @staticmethod
     def _create_engine(config: EngineConfig) -> EngineT:
+        """Create an engine for the concrete registry implementation."""
         raise NotImplementedError
 
     @staticmethod
     def _dispose_engine(engine: EngineT) -> None:
+        """Dispose an engine for the concrete registry implementation."""
         raise NotImplementedError

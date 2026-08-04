@@ -2,7 +2,7 @@
   "databases": {
     "mysql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "mysql+pymysql://app_user:secret@localhost:3306/app",
           "database_options": {
             "charset": "utf8mb4"
@@ -20,8 +20,8 @@
             "pool_recycle": 1800
           }
         },
-        "readonly": {
-          "db_url": "mysql+pymysql://readonly_user:secret@localhost:3306/app",
+        "replica": {
+          "db_url": "mysql+pymysql://replica_user:secret@localhost:3306/app",
           "database_options": {
             "charset": "utf8mb4"
           },

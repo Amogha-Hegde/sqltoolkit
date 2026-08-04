@@ -61,6 +61,7 @@ class AsyncEngineRegistry(BaseEngineRegistry[AsyncEngine]):
         session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> AsyncEngine:
+        """Return a cached asynchronous engine for the given alias and config."""
         config = config_from_kwargs(
             dialect=dialect,
             db_url=db_url,
@@ -87,10 +88,12 @@ class AsyncEngineRegistry(BaseEngineRegistry[AsyncEngine]):
 
     @staticmethod
     def _create_engine(config: EngineConfig) -> AsyncEngine:
+        """Create an asynchronous SQLAlchemy engine."""
         return create_async_engine(**config.to_engine_kwargs())
 
     @staticmethod
     def _dispose_engine(engine: AsyncEngine) -> None:
+        """Dispose an asynchronous SQLAlchemy engine through its sync engine."""
         # AsyncEngine.dispose() is awaitable; the sync_engine path gives
         # deterministic cleanup from synchronous registry operations.
         engine.sync_engine.dispose()

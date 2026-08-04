@@ -62,6 +62,7 @@ class SyncEngineRegistry(BaseEngineRegistry[Engine]):
         session_settings: Mapping[str, Any] | None = None,
         **dialect_options: Any,
     ) -> Engine:
+        """Return a cached synchronous engine for the given alias and config."""
         config = config_from_kwargs(
             dialect=dialect,
             db_url=db_url,
@@ -88,10 +89,12 @@ class SyncEngineRegistry(BaseEngineRegistry[Engine]):
 
     @staticmethod
     def _create_engine(config: EngineConfig) -> Engine:
+        """Create a synchronous SQLAlchemy engine."""
         return create_engine(**config.to_engine_kwargs())
 
     @staticmethod
     def _dispose_engine(engine: Engine) -> None:
+        """Dispose a synchronous SQLAlchemy engine."""
         engine.dispose()
 
 

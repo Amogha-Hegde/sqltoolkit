@@ -2,7 +2,7 @@
   "databases": {
     "mssql": {
       "default": {
-        "readwrite": {
+        "primary": {
           "db_url": "mssql+pyodbc://app_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
           "session_settings": {
             "LOCK_TIMEOUT": 5000,
@@ -15,8 +15,8 @@
             "pool_pre_ping": true
           }
         },
-        "readonly": {
-          "db_url": "mssql+pyodbc://readonly_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+        "replica": {
+          "db_url": "mssql+pyodbc://replica_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
           "session_settings": {
             "LOCK_TIMEOUT": 5000,
             "XACT_ABORT": true,

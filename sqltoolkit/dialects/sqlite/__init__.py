@@ -22,6 +22,7 @@ def build_sqlite_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build a SQLite SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or ("aiosqlite" if async_mode else "pysqlite")
     file_path = config.pop("file_path", None)
     database = config.pop("database", None)
@@ -50,6 +51,7 @@ def build_sqlite_url(
 
 
 def build_sqlite_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build SQLite PRAGMA setup statements."""
     statements: list[str] = []
     for name, value in settings.items():
         pragma_name = validate_setting_name(str(name), dialect="sqlite")

@@ -2,7 +2,7 @@
   "databases": {
     "oracle": {
       "default": {
-        "readwrite": {
+        "primary": {
           "username": "app_user",
           "password": "secret",
           "host": "localhost",
@@ -19,8 +19,8 @@
             "pool_pre_ping": true
           }
         },
-        "readonly": {
-          "username": "readonly_user",
+        "replica": {
+          "username": "replica_user",
           "password": "secret",
           "host": "localhost",
           "port": 1521,
