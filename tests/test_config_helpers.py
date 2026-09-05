@@ -28,32 +28,30 @@ from sqltoolkit.connection.config import (
     config_from_kwargs,
     load_config_from_env,
     load_config_from_file,
-    normalize_access_mode,
+    normalize_alias,
 )
 
 
 @pytest.mark.unit
 def test_basic_config_helpers() -> None:
-    assert normalize_access_mode(" ReadOnly ") == "readonly"
-    assert normalize_access_mode(" Reporting ") == "reporting"
-    with pytest.raises(ValueError, match="access_mode must not be empty"):
-        normalize_access_mode(" ")
+    assert normalize_alias(" ReadOnly ") == "readonly"
+    assert normalize_alias(" Reporting ") == "reporting"
+    with pytest.raises(ValueError, match="alias must not be empty"):
+        normalize_alias(" ")
     assert build_registry_key(
         dialect="postgresql",
-        tenant="default",
-        access_mode="readwrite",
+        alias="readwrite",
         async_mode=False,
-    ) == "postgresql:default:readwrite:sync"
+    ) == "postgresql:readwrite:sync"
     assert build_named_registry_key(
         key="main",
-        access_mode="readonly",
+        alias="readonly",
         async_mode=True,
     ) == "registry:main:readonly:async"
     assert _build_env_prefix(
         dialect="postgresql",
-        tenant="default",
-        access_mode="readwrite",
-    ) == "SQLTOOLKIT__POSTGRESQL__DEFAULT__READWRITE"
+        alias="readwrite",
+    ) == "SQLTOOLKIT__POSTGRESQL__READWRITE"
 
 
 @pytest.mark.unit
@@ -111,21 +109,19 @@ def test_load_config_from_file_errors(tmp_path: Path) -> None:
     with pytest.raises(KeyError, match="Missing database config"):
         load_config_from_file(
             dialect="sqlite",
-            tenant="default",
-            access_mode="readwrite",
+            alias="readwrite",
             config_path=missing_entry,
         )
 
     invalid_entry = tmp_path / "invalid.json"
     invalid_entry.write_text(
-        json.dumps({"databases": {"sqlite": {"default": {"readwrite": "bad"}}}}),
+        json.dumps({"databases": {"sqlite": {"readwrite": "bad"}}}),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="must be a mapping"):
         load_config_from_file(
             dialect="sqlite",
-            tenant="default",
-            access_mode="readwrite",
+            alias="readwrite",
             config_path=invalid_entry,
         )
 
@@ -138,11 +134,9 @@ def test_load_config_from_file_supports_custom_aliases(tmp_path: Path) -> None:
             {
                 "databases": {
                     "sqlite": {
-                        "default": {
-                            "analytics": {
-                                "db_url": "sqlite+pysqlite:///:memory:",
-                                "engine_options": {"echo": True},
-                            }
+                        "analytics": {
+                            "db_url": "sqlite+pysqlite:///:memory:",
+                            "engine_options": {"echo": True},
                         }
                     }
                 }
@@ -152,24 +146,22 @@ def test_load_config_from_file_supports_custom_aliases(tmp_path: Path) -> None:
     )
     ini_path = tmp_path / "config.ini"
     ini_path.write_text(
-        "[databases.sqlite.default.analytics]\n"
+        "[databases.sqlite.analytics]\n"
         "db_url = sqlite+pysqlite:///:memory:\n"
         "\n"
-        "[databases.sqlite.default.analytics.engine_options]\n"
+        "[databases.sqlite.analytics.engine_options]\n"
         "echo = true\n",
         encoding="utf-8",
     )
 
     json_config = load_config_from_file(
         dialect="sqlite",
-        tenant="default",
-        access_mode="analytics",
+        alias="analytics",
         config_path=json_path,
     )
     ini_config = load_config_from_file(
         dialect="sqlite",
-        tenant="default",
-        access_mode="Analytics",
+        alias="Analytics",
         config_path=ini_path,
     )
 
@@ -182,17 +174,17 @@ def test_load_config_from_file_supports_custom_aliases(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_ini_reader_validation_errors() -> None:
     with pytest.raises(ValueError, match="INI sections must look like"):
-        _read_ini_config("[broken.section]\na = 1\n")
+        _read_ini_config("[broken]\na = 1\n")
 
     with pytest.raises(ValueError, match="Unsupported INI subsection"):
         _read_ini_config(
-            "[databases.sqlite.default.readwrite.unsupported]\n"
+            "[databases.sqlite.readwrite.unsupported]\n"
             "a = 1\n"
         )
 
     with pytest.raises(ValueError, match="must decode to a JSON object"):
         _read_ini_config(
-            "[databases.sqlite.default.readwrite]\n"
+            "[databases.sqlite.readwrite]\n"
             "connect_args = []\n"
         )
 
@@ -224,27 +216,24 @@ def test_load_config_from_env_errors_and_aliases() -> None:
     with pytest.raises(KeyError, match="No environment configuration found"):
         load_config_from_env(
             dialect="sqlite",
-            tenant="default",
-            access_mode="readwrite",
+            alias="readwrite",
             env={},
         )
 
     with pytest.raises(KeyError, match="No environment configuration found"):
         load_config_from_env(
             dialect="sqlite",
-            tenant="default",
-            access_mode="archive",
+            alias="archive",
             env={"X": "1"},
         )
 
     config = load_config_from_env(
         dialect="sqlite",
-        tenant="",
-        access_mode="readwrite",
+        alias="readwrite",
         env={
-            "SQLTOOLKIT__SQLITE__DEFAULT__READWRITE__URL": "sqlite+pysqlite:///:memory:",
-            "SQLTOOLKIT__SQLITE__DEFAULT__READWRITE__OPTIONS": '{"echo": true}',
-            "SQLTOOLKIT__SQLITE__DEFAULT__READWRITE__SESSION_SETTINGS": '{"foreign_keys": true}',
+            "SQLTOOLKIT__SQLITE__READWRITE__URL": "sqlite+pysqlite:///:memory:",
+            "SQLTOOLKIT__SQLITE__READWRITE__OPTIONS": '{"echo": true}',
+            "SQLTOOLKIT__SQLITE__READWRITE__SESSION_SETTINGS": '{"foreign_keys": true}',
         },
     )
     assert config.url == "sqlite+pysqlite:///:memory:"
@@ -253,10 +242,9 @@ def test_load_config_from_env_errors_and_aliases() -> None:
 
     alias_config = load_config_from_env(
         dialect="sqlite",
-        tenant="default",
-        access_mode="Analytics",
+        alias="Analytics",
         env={
-            "SQLTOOLKIT__SQLITE__DEFAULT__ANALYTICS__URL": "sqlite+pysqlite:///:memory:",
+            "SQLTOOLKIT__SQLITE__ANALYTICS__URL": "sqlite+pysqlite:///:memory:",
         },
     )
     assert alias_config.url == "sqlite+pysqlite:///:memory:"

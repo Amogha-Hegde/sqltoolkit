@@ -16,7 +16,7 @@ from sqltoolkit.dialects import (
     normalize_dialect,
 )
 
-DEFAULT_ACCESS_MODE = "readwrite"
+DEFAULT_ALIAS = "default"
 
 ENV_PREFIX = "SQLTOOLKIT"
 
@@ -42,40 +42,37 @@ class EngineConfig:
         )
 
 
-def normalize_access_mode(access_mode: str) -> str:
-    """Normalize an access alias for env/file lookup and registry keys."""
-    normalized = str(access_mode).strip().lower()
+def normalize_alias(alias: str) -> str:
+    """Normalize a database alias for env/file lookup and registry keys."""
+    normalized = str(alias).strip().lower()
     if not normalized:
-        raise ValueError("access_mode must not be empty")
+        raise ValueError("alias must not be empty")
     return normalized
 
 
 def build_registry_key(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool,
 ) -> str:
-    """Build the canonical cache key for dialect, tenant, alias, and interface."""
+    """Build the canonical cache key for dialect, alias, and interface."""
     interface = "async" if async_mode else "sync"
-    return f"{dialect}:{tenant}:{access_mode}:{interface}"
+    return f"{dialect}:{alias}:{interface}"
 
 
 def load_config_from_env(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> EngineConfig:
     """Load an engine configuration from SQLTOOLKIT environment variables."""
     source = os.environ if env is None else env
     dialect = normalize_dialect(dialect)
-    access_mode = normalize_access_mode(access_mode)
-    tenant_name = tenant.strip() or "default"
-    prefix = _build_env_prefix(dialect=dialect, tenant=tenant_name, access_mode=access_mode)
+    alias = normalize_alias(alias)
+    prefix = _build_env_prefix(dialect=dialect, alias=alias)
     raw_config = _load_env_mapping(source, prefix)
     if not raw_config:
         raise KeyError(f"No environment configuration found for prefix '{prefix}'")
@@ -85,32 +82,30 @@ def load_config_from_env(
 def load_config_from_file(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool = False,
     config_path: str | os.PathLike[str],
 ) -> EngineConfig:
     """Load an engine configuration from a JSON or INI config file."""
     dialect = normalize_dialect(dialect)
-    access_mode = normalize_access_mode(access_mode)
-    tenant_name = tenant.strip() or "default"
+    alias = normalize_alias(alias)
 
     config_data = _read_config_file(config_path)
     try:
-        tenant_config = config_data["databases"][dialect][tenant_name][access_mode]
+        alias_config = config_data["databases"][dialect][alias]
     except KeyError as exc:
         raise KeyError(
             "Missing database config for "
-            f"dialect='{dialect}', tenant='{tenant_name}', access_mode='{access_mode}'"
+            f"dialect='{dialect}', alias='{alias}'"
         ) from exc
 
-    if not isinstance(tenant_config, dict):
+    if not isinstance(alias_config, dict):
         raise ValueError("Database config entry must be a mapping")
 
     return build_engine_config(
         dialect=dialect,
         async_mode=async_mode,
-        raw_config=_normalize_file_config_entry(tenant_config),
+        raw_config=_normalize_file_config_entry(alias_config),
     )
 
 
@@ -199,14 +194,13 @@ def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any
     return data
 
 
-def _build_env_prefix(*, dialect: str, tenant: str, access_mode: str) -> str:
+def _build_env_prefix(*, dialect: str, alias: str) -> str:
     """Build the environment variable prefix for one database alias."""
     return "__".join(
         [
             ENV_PREFIX,
             dialect.upper(),
-            tenant.upper(),
-            access_mode.upper(),
+            alias.upper(),
         ]
     )
 
@@ -239,27 +233,27 @@ def _read_ini_config(raw: str) -> dict[str, Any]:
     data: dict[str, Any] = {}
     for section_name in parser.sections():
         section_path = section_name.split(".")
-        if len(section_path) in {3, 4} and section_path[0] != "databases":
+        if len(section_path) in {2, 3} and section_path[0] != "databases":
             section_path = ["databases", *section_path]
-        if len(section_path) not in {4, 5} or section_path[0] != "databases":
+        if len(section_path) not in {3, 4} or section_path[0] != "databases":
             raise ValueError(
                 "INI sections must look like "
-                "'[databases.<dialect>.<tenant>.<access_mode>]', "
-                "'[<dialect>.<tenant>.<access_mode>]', "
+                "'[databases.<dialect>.<alias>]', "
+                "'[<dialect>.<alias>]', "
                 "or those paths with a trailing '.database_options', '.options', '.query', or '.connect_args'"
                 " or '.session_settings'"
             )
 
         current = data
-        for part in section_path[:4]:
+        for part in section_path[:3]:
             current = current.setdefault(part, {})
 
-        if len(section_path) == 4:
+        if len(section_path) == 3:
             section_data = _coerce_ini_section(dict(parser.items(section_name)))
             current.update(section_data)
             continue
 
-        subsection = section_path[4].lower()
+        subsection = section_path[3].lower()
         mapped_key = {
             "database_options": "database_options",
             "query": "query",
@@ -525,14 +519,13 @@ def _infer_dialect_from_url(db_url: str | None) -> str:
 def build_named_registry_key(
     *,
     key: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool,
 ) -> str:
     """Build a registry key for direct EngineRegistry entries."""
     return build_registry_key(
         dialect="registry",
-        tenant=key,
-        access_mode=access_mode,
+        alias=f"{key}:{alias}",
         async_mode=async_mode,
     )
 

@@ -5,64 +5,94 @@
 ## Features
 
 - Thread-safe engine management
-- Multi-tenant database routing
+- Alias-based database routing
 - Centralized configuration
 - Sync and async engine interfaces
-- Separate engine caches by tenant, alias, and sync/async interface
+- Separate engine caches by alias and sync/async interface
 
 ## Public APIs
 
-### 1. Environment-based configuration
+### 1. File-based configuration
 
 ```python
-from sqltoolkit.connection import get_engine, get_async_engine
+from sqltoolkit import get_engine, get_async_engine
 
-engine = get_engine(dialect="postgresql", tenant="tenantA", access_mode="primary")
-async_engine = get_async_engine(dialect="postgresql", tenant="tenantA", access_mode="replica")
+engine = get_engine(alias="test")
+async_engine = get_async_engine(alias="test")
+```
+
+By default, these use `dialect="postgresql"` and `config_path="db_config.json"`.
+Override either value when needed:
+
+```python
+from sqltoolkit import get_engine
+
+engine = get_engine(
+    alias="test",
+    dialect="sqlite",
+    config_path="sqlite_config.ini",
+)
+```
+
+The file config shape is:
+
+```json
+{
+  "databases": {
+    "postgresql": {
+      "test": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app"
+      }
+    }
+  }
+}
+```
+
+`alias` is the only routing name. Use aliases that match your app, such as
+`test`, `primary`, `replica`, `analytics`, or `migration`. Aliases are normalized
+by trimming whitespace and lowercasing.
+
+### 2. Environment-based configuration
+
+```python
+from sqltoolkit import get_engine_from_env, get_async_engine_from_env
+
+engine = get_engine_from_env(alias="test")
+async_engine = get_async_engine_from_env(alias="test")
 ```
 
 Environment variable pattern:
 
 ```text
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DB_URL
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DRIVER
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__USERNAME
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__PASSWORD
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__HOST
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__PORT
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DATABASE
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__POOL_SIZE
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__MAX_OVERFLOW
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__POOL_PRE_PING
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ECHO
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__CONNECT_ARGS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__QUERY
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DATABASE_OPTIONS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__SESSION_SETTINGS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ENGINE_OPTIONS
+SQLTOOLKIT__{DIALECT}__{ALIAS}__DB_URL
+SQLTOOLKIT__{DIALECT}__{ALIAS}__DRIVER
+SQLTOOLKIT__{DIALECT}__{ALIAS}__USERNAME
+SQLTOOLKIT__{DIALECT}__{ALIAS}__PASSWORD
+SQLTOOLKIT__{DIALECT}__{ALIAS}__HOST
+SQLTOOLKIT__{DIALECT}__{ALIAS}__PORT
+SQLTOOLKIT__{DIALECT}__{ALIAS}__DATABASE
+SQLTOOLKIT__{DIALECT}__{ALIAS}__POOL_SIZE
+SQLTOOLKIT__{DIALECT}__{ALIAS}__MAX_OVERFLOW
+SQLTOOLKIT__{DIALECT}__{ALIAS}__POOL_PRE_PING
+SQLTOOLKIT__{DIALECT}__{ALIAS}__ECHO
+SQLTOOLKIT__{DIALECT}__{ALIAS}__CONNECT_ARGS
+SQLTOOLKIT__{DIALECT}__{ALIAS}__QUERY
+SQLTOOLKIT__{DIALECT}__{ALIAS}__DATABASE_OPTIONS
+SQLTOOLKIT__{DIALECT}__{ALIAS}__SESSION_SETTINGS
+SQLTOOLKIT__{DIALECT}__{ALIAS}__ENGINE_OPTIONS
 ```
-
-`ACCESS_MODE` is an alias segment, not a fixed enum. Use names that match your deployment
-shape, such as `primary`, `replica`, `analytics`, `migration`, or `tenant_admin`.
-Aliases are normalized by trimming whitespace and lowercasing.
 
 Example:
 
 ```text
-SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__USERNAME=user
-SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__PASSWORD='p@ss:/# word%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__PRIMARY__DATABASE=app
-
-SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__USERNAME=replica
-SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__PASSWORD='r3@d:/# only%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__REPLICA__DATABASE=app
+SQLTOOLKIT__POSTGRESQL__TEST__USERNAME=user
+SQLTOOLKIT__POSTGRESQL__TEST__PASSWORD='p@ss:/# word%'
+SQLTOOLKIT__POSTGRESQL__TEST__HOST=localhost
+SQLTOOLKIT__POSTGRESQL__TEST__PORT=5432
+SQLTOOLKIT__POSTGRESQL__TEST__DATABASE=app
 ```
 
-### 2. Global engine registry
+### 3. Global engine registry
 
 ```python
 from sqltoolkit.connection import EngineRegistry
@@ -78,7 +108,6 @@ engine = EngineRegistry.get_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    access_mode="primary",
 )
 
 async_engine = EngineRegistry.get_async_engine(
@@ -89,7 +118,6 @@ async_engine = EngineRegistry.get_async_engine(
     host="localhost",
     port=5432,
     database="mydb",
-    access_mode="replica",
 )
 ```
 
@@ -110,23 +138,21 @@ Common file-config extras:
 - `engine_options`: SQLAlchemy `create_engine` / `create_async_engine` kwargs
 - `options`: alias for `engine_options` in file configs
 
-### 3. File-based configuration
+### 4. Explicit file helpers
 
 ```python
 from sqltoolkit.connection import get_engine_from_file, get_async_engine_from_file
 
 engine = get_engine_from_file(
+    alias="test",
     dialect="postgresql",
-    tenant="default",
     config_path="db_config.json",
-    access_mode="primary",
 )
 
 async_engine = get_async_engine_from_file(
+    alias="test",
     dialect="postgresql",
-    tenant="default",
     config_path="db_config.ini",
-    access_mode="replica",
 )
 ```
 
@@ -136,27 +162,15 @@ Example JSON:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "primary": {
-          "username": "user",
-          "password": "password",
-          "host": "localhost",
-          "port": 5432,
-          "database": "app",
-          "pool_size": 10,
-          "max_overflow": 20,
-          "pool_pre_ping": true
-        },
-        "replica": {
-          "username": "replica",
-          "password": "password",
-          "host": "localhost",
-          "port": 5432,
-          "database": "app",
-          "pool_size": 5,
-          "max_overflow": 10,
-          "pool_pre_ping": true
-        }
+      "test": {
+        "username": "user",
+        "password": "password",
+        "host": "localhost",
+        "port": 5432,
+        "database": "app",
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_pre_ping": true
       }
     }
   }
@@ -166,7 +180,7 @@ Example JSON:
 Example INI:
 
 ```ini
-[databases.postgresql.default.primary]
+[databases.postgresql.test]
 username = user
 password = password
 host = localhost
@@ -174,16 +188,6 @@ port = 5432
 database = app
 pool_size = 10
 max_overflow = 20
-pool_pre_ping = true
-
-[databases.postgresql.default.replica]
-username = replica
-password = password
-host = localhost
-port = 5432
-database = app
-pool_size = 5
-max_overflow = 10
 pool_pre_ping = true
 ```
 
@@ -193,16 +197,14 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "primary": {
-          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
-          "database_options": {
-            "application_name": "sqltoolkit"
-          },
-          "engine_options": {
-            "pool_recycle": 1800,
-            "pool_use_lifo": true
-          }
+      "test": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+        "database_options": {
+          "application_name": "sqltoolkit"
+        },
+        "engine_options": {
+          "pool_recycle": 1800,
+          "pool_use_lifo": true
         }
       }
     }
@@ -213,13 +215,13 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
 INI with `db_url`, database options, and SQLAlchemy engine options:
 
 ```ini
-[databases.postgresql.default.primary]
+[databases.postgresql.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.primary.database_options]
+[databases.postgresql.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.primary.engine_options]
+[databases.postgresql.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -238,36 +240,34 @@ PostgreSQL sample JSON:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "primary": {
-          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
-          "database_options": {
-            "application_name": "sqltoolkit"
-          },
-          "session_settings": {
-            "search_path": "app, public",
-            "statement_timeout": "30000",
-            "lock_timeout": "5000",
-            "idle_in_transaction_session_timeout": "60000",
-            "deadlock_timeout": "1000",
-            "default_transaction_isolation": "read committed",
-            "default_transaction_read_only": false,
-            "default_transaction_deferrable": false,
-            "jit": false,
-            "max_parallel_workers_per_gather": 2,
-            "work_mem": "64MB",
-            "maintenance_work_mem": "256MB",
-            "random_page_cost": 1.1,
-            "effective_cache_size": "4GB",
-            "log_min_duration_statement": 250,
-            "TimeZone": "UTC",
-            "DateStyle": "ISO, MDY",
-            "row_security": true
-          },
-          "engine_options": {
-            "pool_recycle": 1800,
-            "pool_use_lifo": true
-          }
+      "primary": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+        "database_options": {
+          "application_name": "sqltoolkit"
+        },
+        "session_settings": {
+          "search_path": "app, public",
+          "statement_timeout": "30000",
+          "lock_timeout": "5000",
+          "idle_in_transaction_session_timeout": "60000",
+          "deadlock_timeout": "1000",
+          "default_transaction_isolation": "read committed",
+          "default_transaction_read_only": false,
+          "default_transaction_deferrable": false,
+          "jit": false,
+          "max_parallel_workers_per_gather": 2,
+          "work_mem": "64MB",
+          "maintenance_work_mem": "256MB",
+          "random_page_cost": 1.1,
+          "effective_cache_size": "4GB",
+          "log_min_duration_statement": 250,
+          "TimeZone": "UTC",
+          "DateStyle": "ISO, MDY",
+          "row_security": true
+        },
+        "engine_options": {
+          "pool_recycle": 1800,
+          "pool_use_lifo": true
         }
       }
     }
@@ -278,13 +278,13 @@ PostgreSQL sample JSON:
 PostgreSQL sample INI:
 
 ```ini
-[databases.postgresql.default.primary]
+[databases.postgresql.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.primary.database_options]
+[databases.postgresql.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.primary.session_settings]
+[databases.postgresql.primary.session_settings]
 search_path = app, public
 statement_timeout = 30000
 lock_timeout = 5000
@@ -304,7 +304,7 @@ TimeZone = UTC
 DateStyle = ISO, MDY
 row_security = true
 
-[databases.postgresql.default.primary.engine_options]
+[databases.postgresql.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -315,15 +315,13 @@ MySQL sample JSON:
 {
   "databases": {
     "mysql": {
-      "default": {
-        "primary": {
-          "db_url": "mysql+pymysql://user:password@localhost:3306/app",
-          "session_settings": {
-            "sql_mode": "STRICT_ALL_TABLES",
-            "time_zone": "+00:00",
-            "innodb_lock_wait_timeout": 10,
-            "max_execution_time": 5000
-          }
+      "primary": {
+        "db_url": "mysql+pymysql://user:password@localhost:3306/app",
+        "session_settings": {
+          "sql_mode": "STRICT_ALL_TABLES",
+          "time_zone": "+00:00",
+          "innodb_lock_wait_timeout": 10,
+          "max_execution_time": 5000
         }
       }
     }
@@ -334,10 +332,10 @@ MySQL sample JSON:
 MySQL sample INI:
 
 ```ini
-[databases.mysql.default.primary]
+[databases.mysql.primary]
 db_url = mysql+pymysql://user:password@localhost:3306/app
 
-[databases.mysql.default.primary.session_settings]
+[databases.mysql.primary.session_settings]
 sql_mode = STRICT_ALL_TABLES
 time_zone = +00:00
 innodb_lock_wait_timeout = 10
@@ -350,18 +348,16 @@ Oracle sample JSON:
 {
   "databases": {
     "oracle": {
-      "default": {
-        "primary": {
-          "username": "user",
-          "password": "password",
-          "host": "localhost",
-          "port": 1521,
-          "service_name": "FREEPDB1",
-          "session_settings": {
-            "time_zone": "UTC",
-            "nls_date_format": "YYYY-MM-DD",
-            "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
-          }
+      "primary": {
+        "username": "user",
+        "password": "password",
+        "host": "localhost",
+        "port": 1521,
+        "service_name": "FREEPDB1",
+        "session_settings": {
+          "time_zone": "UTC",
+          "nls_date_format": "YYYY-MM-DD",
+          "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
         }
       }
     }
@@ -372,14 +368,14 @@ Oracle sample JSON:
 Oracle sample INI:
 
 ```ini
-[databases.oracle.default.primary]
+[databases.oracle.primary]
 username = user
 password = password
 host = localhost
 port = 1521
 service_name = FREEPDB1
 
-[databases.oracle.default.primary.session_settings]
+[databases.oracle.primary.session_settings]
 time_zone = UTC
 nls_date_format = YYYY-MM-DD
 nls_timestamp_format = YYYY-MM-DD HH24:MI:SS
@@ -391,14 +387,12 @@ MSSQL sample JSON:
 {
   "databases": {
     "mssql": {
-      "default": {
-        "primary": {
-          "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
-          "session_settings": {
-            "LOCK_TIMEOUT": 5000,
-            "XACT_ABORT": true,
-            "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
-          }
+      "primary": {
+        "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+        "session_settings": {
+          "LOCK_TIMEOUT": 5000,
+          "XACT_ABORT": true,
+          "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
         }
       }
     }
@@ -409,10 +403,10 @@ MSSQL sample JSON:
 MSSQL sample INI:
 
 ```ini
-[databases.mssql.default.primary]
+[databases.mssql.primary]
 db_url = mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server
 
-[databases.mssql.default.primary.session_settings]
+[databases.mssql.primary.session_settings]
 LOCK_TIMEOUT = 5000
 XACT_ABORT = true
 TRANSACTION ISOLATION LEVEL = READ COMMITTED
@@ -424,14 +418,12 @@ SQLite sample JSON:
 {
   "databases": {
     "sqlite": {
-      "default": {
-        "primary": {
-          "file_path": "./app.db",
-          "session_settings": {
-            "foreign_keys": true,
-            "journal_mode": "WAL",
-            "busy_timeout": 5000
-          }
+      "primary": {
+        "file_path": "./app.db",
+        "session_settings": {
+          "foreign_keys": true,
+          "journal_mode": "WAL",
+          "busy_timeout": 5000
         }
       }
     }
@@ -442,10 +434,10 @@ SQLite sample JSON:
 SQLite sample INI:
 
 ```ini
-[databases.sqlite.default.primary]
+[databases.sqlite.primary]
 file_path = ./app.db
 
-[databases.sqlite.default.primary.session_settings]
+[databases.sqlite.primary.session_settings]
 foreign_keys = true
 journal_mode = WAL
 busy_timeout = 5000
@@ -552,12 +544,12 @@ Sample environment files for every supported dialect are available in [examples/
 from sqltoolkit.connection import EngineRegistry
 
 EngineRegistry.list_registry_keys()
-EngineRegistry.get_engine_config("postgresql:tenantA:primary:sync")
+EngineRegistry.get_engine_config("postgresql:test:sync")
 EngineRegistry.set_max_entries(512)
 EngineRegistry.get_registry_size()
 EngineRegistry.get_registry_stats()
-EngineRegistry.dispose_engine(key="default", access_mode="primary", async_mode=False)
-EngineRegistry.dispose_registry_key("postgresql:tenantA:replica:async")
+EngineRegistry.dispose_engine(key="default", async_mode=False)
+EngineRegistry.dispose_registry_key("postgresql:test:async")
 EngineRegistry.dispose_all()
 ```
 

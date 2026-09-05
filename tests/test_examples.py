@@ -37,20 +37,19 @@ def test_json_examples_are_valid_json(path: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("path", "access_mode"),
+    ("path", "alias"),
     [
-        (path, access_mode)
+        (path, alias)
         for path in sorted(CONFIG_EXAMPLES.glob("*.ini"))
-        for access_mode in ("primary", "replica")
+        for alias in ("primary", "replica")
     ],
     ids=lambda item: item.name if isinstance(item, Path) else item,
 )
-def test_ini_examples_load_for_both_aliases(path: Path, access_mode: str) -> None:
+def test_ini_examples_load_for_both_aliases(path: Path, alias: str) -> None:
     dialect = path.name.split(".", 1)[0]
     config = load_config_from_file(
         dialect=dialect,
-        tenant="default",
-        access_mode=access_mode,
+        alias=alias,
         async_mode=False,
         config_path=path,
     )
@@ -59,20 +58,19 @@ def test_ini_examples_load_for_both_aliases(path: Path, access_mode: str) -> Non
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("path", "access_mode"),
+    ("path", "alias"),
     [
-        (path, access_mode)
+        (path, alias)
         for path in sorted(ENV_EXAMPLES.iterdir())
         if path.is_file() and path.suffix == ".env"
-        for access_mode in ("primary", "replica")
+        for alias in ("primary", "replica")
     ],
 )
-def test_env_examples_load_for_both_aliases(path: Path, access_mode: str) -> None:
+def test_env_examples_load_for_both_aliases(path: Path, alias: str) -> None:
     dialect = path.name.split(".", 1)[0]
     config = load_config_from_env(
         dialect=dialect,
-        tenant="default",
-        access_mode=access_mode,
+        alias=alias,
         async_mode=False,
         env=_load_env_example(path),
     )
@@ -82,24 +80,23 @@ def test_env_examples_load_for_both_aliases(path: Path, access_mode: str) -> Non
 @pytest.mark.unit
 def test_env_aliases_match_file_aliases() -> None:
     env = {
-        "SQLTOOLKIT__POSTGRESQL__DEFAULT__READWRITE__URL": (
+        "SQLTOOLKIT__POSTGRESQL__READWRITE__URL": (
             "postgresql+psycopg://user:password@localhost:5432/app"
         ),
-        "SQLTOOLKIT__POSTGRESQL__DEFAULT__READWRITE__DATABASE_OPTIONS": (
+        "SQLTOOLKIT__POSTGRESQL__READWRITE__DATABASE_OPTIONS": (
             '{"application_name":"sqltoolkit"}'
         ),
-        "SQLTOOLKIT__POSTGRESQL__DEFAULT__READWRITE__OPTIONS": (
+        "SQLTOOLKIT__POSTGRESQL__READWRITE__OPTIONS": (
             '{"pool_use_lifo": true, "pool_recycle": 1800}'
         ),
-        "SQLTOOLKIT__POSTGRESQL__DEFAULT__READWRITE__SESSION_SETTINGS": (
+        "SQLTOOLKIT__POSTGRESQL__READWRITE__SESSION_SETTINGS": (
             '{"search_path":"app, public"}'
         ),
     }
 
     config = load_config_from_env(
         dialect="postgresql",
-        tenant="default",
-        access_mode="readwrite",
+        alias="readwrite",
         async_mode=False,
         env=env,
     )

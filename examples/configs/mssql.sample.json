@@ -1,32 +1,30 @@
 {
   "databases": {
     "mssql": {
-      "default": {
-        "primary": {
-          "db_url": "mssql+pyodbc://app_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
-          "session_settings": {
-            "LOCK_TIMEOUT": 5000,
-            "XACT_ABORT": true,
-            "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
-          },
-          "engine_options": {
-            "pool_size": 10,
-            "max_overflow": 20,
-            "pool_pre_ping": true
-          }
+      "primary": {
+        "db_url": "mssql+pyodbc://app_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+        "session_settings": {
+          "LOCK_TIMEOUT": 5000,
+          "XACT_ABORT": true,
+          "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
         },
-        "replica": {
-          "db_url": "mssql+pyodbc://replica_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
-          "session_settings": {
-            "LOCK_TIMEOUT": 5000,
-            "XACT_ABORT": true,
-            "TRANSACTION ISOLATION LEVEL": "READ UNCOMMITTED"
-          },
-          "engine_options": {
-            "pool_size": 5,
-            "max_overflow": 10,
-            "pool_pre_ping": true
-          }
+        "engine_options": {
+          "pool_size": 10,
+          "max_overflow": 20,
+          "pool_pre_ping": true
+        }
+      },
+      "replica": {
+        "db_url": "mssql+pyodbc://replica_user:secret@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+        "session_settings": {
+          "LOCK_TIMEOUT": 5000,
+          "XACT_ABORT": true,
+          "TRANSACTION ISOLATION LEVEL": "READ UNCOMMITTED"
+        },
+        "engine_options": {
+          "pool_size": 5,
+          "max_overflow": 10,
+          "pool_pre_ping": true
         }
       }
     }

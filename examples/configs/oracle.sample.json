@@ -1,39 +1,37 @@
 {
   "databases": {
     "oracle": {
-      "default": {
-        "primary": {
-          "username": "app_user",
-          "password": "secret",
-          "host": "localhost",
-          "port": 1521,
-          "service_name": "FREEPDB1",
-          "session_settings": {
-            "time_zone": "UTC",
-            "nls_date_format": "YYYY-MM-DD",
-            "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
-          },
-          "engine_options": {
-            "pool_size": 10,
-            "max_overflow": 20,
-            "pool_pre_ping": true
-          }
+      "primary": {
+        "username": "app_user",
+        "password": "secret",
+        "host": "localhost",
+        "port": 1521,
+        "service_name": "FREEPDB1",
+        "session_settings": {
+          "time_zone": "UTC",
+          "nls_date_format": "YYYY-MM-DD",
+          "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
         },
-        "replica": {
-          "username": "replica_user",
-          "password": "secret",
-          "host": "localhost",
-          "port": 1521,
-          "service_name": "FREEPDB1",
-          "session_settings": {
-            "time_zone": "UTC",
-            "nls_date_format": "YYYY-MM-DD"
-          },
-          "engine_options": {
-            "pool_size": 5,
-            "max_overflow": 10,
-            "pool_pre_ping": true
-          }
+        "engine_options": {
+          "pool_size": 10,
+          "max_overflow": 20,
+          "pool_pre_ping": true
+        }
+      },
+      "replica": {
+        "username": "replica_user",
+        "password": "secret",
+        "host": "localhost",
+        "port": 1521,
+        "service_name": "FREEPDB1",
+        "session_settings": {
+          "time_zone": "UTC",
+          "nls_date_format": "YYYY-MM-DD"
+        },
+        "engine_options": {
+          "pool_size": 5,
+          "max_overflow": 10,
+          "pool_pre_ping": true
         }
       }
     }

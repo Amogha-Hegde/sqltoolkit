@@ -228,28 +228,25 @@ def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path)
 
     assert _get_env_engine(
         dialect="sqlite",
-        tenant="default",
-        access_mode=" Reporting ",
+        alias=" Reporting ",
         async_mode=False,
         env={},
     ) == "SYNC"
-    assert calls[-1]["key"] == "sqlite:default:reporting:sync"
+    assert calls[-1]["key"] == "sqlite:reporting:sync"
     assert _get_env_engine(
         dialect="sqlite",
-        tenant="default",
-        access_mode="readwrite",
+        alias="readwrite",
         async_mode=True,
         env={},
     ) == "ASYNC"
     assert _get_file_engine(
         dialect="sqlite",
-        tenant="default",
+        alias="readwrite",
         config_path=str(tmp_path / "x.ini"),
-        access_mode="readwrite",
         async_mode=False,
     ) == "SYNC"
-    assert get_engine(dialect="sqlite", env={}) == "SYNC"
-    assert get_async_engine(dialect="sqlite", env={}) == "ASYNC"
+    assert get_engine(dialect="sqlite", alias="readwrite", config_path="x.ini") == "SYNC"
+    assert get_async_engine(dialect="sqlite", alias="readwrite", config_path="x.ini") == "ASYNC"
     assert get_async_engine_from_file(dialect="sqlite", config_path="x.ini") == "ASYNC"
 
 

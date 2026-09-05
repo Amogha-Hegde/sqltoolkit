@@ -17,11 +17,11 @@ from sqltoolkit.connection._engine_base import (
     read_max_entries_from_env,
 )
 from sqltoolkit.connection.config import (
-    DEFAULT_ACCESS_MODE,
+    DEFAULT_ALIAS,
     EngineConfig,
     build_named_registry_key,
     config_from_kwargs,
-    normalize_access_mode,
+    normalize_alias,
 )
 
 
@@ -50,7 +50,7 @@ class AsyncEngineRegistry(BaseEngineRegistry[AsyncEngine]):
         db_url: str | None = None,
         dialect: str | None = None,
         driver: str | None = None,
-        access_mode: str = DEFAULT_ACCESS_MODE,
+        alias: str = DEFAULT_ALIAS,
         pool_size: int = 5,
         max_overflow: int = 10,
         pool_pre_ping: bool = True,
@@ -80,7 +80,7 @@ class AsyncEngineRegistry(BaseEngineRegistry[AsyncEngine]):
         return cls.get_or_create(
             key=build_named_registry_key(
                 key=key,
-                access_mode=normalize_access_mode(access_mode),
+                alias=normalize_alias(alias),
                 async_mode=True,
             ),
             config=config,
