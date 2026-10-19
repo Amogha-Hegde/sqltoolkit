@@ -59,6 +59,10 @@ sqlite = [
     "aiosqlite>=0.20.0"
 ]
 
+redis = [
+    "redis>=5.0"
+]
+
 all = [
     "asyncpg>=0.31.0",
     "psycopg[binary]>=3.1",

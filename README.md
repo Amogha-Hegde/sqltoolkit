@@ -571,5 +571,6 @@ EngineRegistry.dispose_all()
 
 - The registry is process-local. If a process fork is detected, inherited engine entries are cleared and disposed before reuse.
 - The registry uses LRU eviction with a default cap of `256` cached engines. Override this with `EngineRegistry.set_max_entries(...)` or `SQLTOOLKIT_REGISTRY_MAX_ENTRIES`.
-- Engine creation failures are cached briefly per registry key and config fingerprint. The default failure backoff is `5` seconds and can be overridden with `SQLTOOLKIT_REGISTRY_FAILURE_TTL`.
+- Engine construction and database connection establishment failures are cached briefly per registry key and config fingerprint. The default failure backoff is `5` seconds and can be overridden with `SQLTOOLKIT_REGISTRY_FAILURE_TTL`.
+- Failure records use process-local memory by default. To share failure backoff across processes, install `sqltoolkit[redis]` and set `SQLTOOLKIT_FAILURE_BACKEND=redis` plus `SQLTOOLKIT_REDIS_URL=redis://localhost:6379/0`. Redis records expire after the configured failure TTL; `SQLTOOLKIT_REDIS_FAILURE_PREFIX` can change the default key prefix (`sqltoolkit:failures`). If Redis is unavailable, records fall back to process-local memory until Redis becomes available again.
 - Engine creation uses double-checked locking. Under contention, duplicate engines may be created transiently and one will be disposed immediately after registration loses the race.

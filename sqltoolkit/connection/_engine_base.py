@@ -14,6 +14,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .config import EngineConfig
+from . import failure_backend
 
 EngineT = TypeVar("EngineT", Engine, AsyncEngine)
 
@@ -84,16 +85,19 @@ class BaseEngineRegistry(Generic[EngineT]):
                 cls._stats["hits"] += 1
                 cls._entries.move_to_end(key)
                 return existing.engine
-            cls._raise_if_failure_backoff_active(key=key, fingerprint=fingerprint)
+
+        cls._raise_if_failure_backoff_active(key=key, fingerprint=fingerprint)
+        with cls._lock:
             cls._stats["misses"] += 1
 
         try:
             engine = cls._create_engine(config)
-            cls._configure_engine(engine, config)
+            cls._configure_engine(engine, config, key=key)
         except Exception as exc:
             cls._record_failure(key=key, fingerprint=fingerprint, error=exc)
             raise
 
+        cls._delete_failure(key)
         with cls._lock:
             existing = cls._entries.get(key)
             if existing is not None:
@@ -104,7 +108,6 @@ class BaseEngineRegistry(Generic[EngineT]):
                 return existing.engine
 
             cls._entries[key] = RegistryEntry(engine=engine, config=config)
-            cls._failures.pop(key, None)
             cls._stats["creations"] += 1
             cls._entries.move_to_end(key)
             evicted = cls._evict_if_needed_locked(exclude_key=key)
@@ -121,7 +124,8 @@ class BaseEngineRegistry(Generic[EngineT]):
         with cls._lock:
             entries = list(cls._entries.values())
             cls._entries.clear()
-            cls._failures.clear()
+
+        cls._clear_failures()
 
         for entry in entries:
             cls._dispose_entry(entry)
@@ -132,7 +136,8 @@ class BaseEngineRegistry(Generic[EngineT]):
         cls._reset_if_forked()
         with cls._lock:
             entry = cls._entries.pop(registry_key, None)
-            cls._failures.pop(registry_key, None)
+
+        cls._delete_failure(registry_key)
 
         if entry is None:
             return False
@@ -223,14 +228,56 @@ class BaseEngineRegistry(Generic[EngineT]):
                 f"Engine key '{key}' is already registered with different settings"
             )
 
-    @staticmethod
-    def _configure_engine(engine: Engine | AsyncEngine, config: EngineConfig) -> None:
+    @classmethod
+    def _configure_engine(
+        cls,
+        engine: Engine | AsyncEngine,
+        config: EngineConfig,
+        *,
+        key: str | None = None,
+    ) -> None:
         """Attach session setup SQL to each new DBAPI connection."""
-        if not config.on_connect_statements:
-            return
-
         target = engine.sync_engine if isinstance(engine, AsyncEngine) else engine
         statements = config.on_connect_statements
+
+        if key is not None:
+            fingerprint = config.fingerprint()
+
+            def check_connection_backoff(
+                dialect: Any,
+                connection_record: Any,
+                cargs: Any,
+                cparams: Any,
+            ) -> None:
+                """Skip a new DBAPI connection while its failure is backed off."""
+                del dialect, connection_record, cargs, cparams
+                cls._raise_if_failure_backoff_active(
+                    key=key,
+                    fingerprint=fingerprint,
+                )
+
+            def record_connection_failure(exception_context: Any) -> None:
+                """Cache failures raised while SQLAlchemy establishes a connection."""
+                if exception_context.connection is None:
+                    error = exception_context.original_exception
+                    if isinstance(error, Exception):
+                        cls._record_failure(
+                            key=key,
+                            fingerprint=fingerprint,
+                            error=error,
+                        )
+
+            def clear_connection_failure(dbapi_connection: Any, connection_record: Any) -> None:
+                """Clear a backoff after a DBAPI connection succeeds."""
+                del dbapi_connection, connection_record
+                cls._delete_failure(key)
+
+            event.listen(target.dialect, "do_connect", check_connection_backoff)
+            event.listen(target, "handle_error", record_connection_failure)
+            event.listen(target, "connect", clear_connection_failure)
+
+        if not statements:
+            return
 
         def run_session_setup(dbapi_connection: Any, connection_record: Any) -> None:
             """Run configured setup SQL for one DBAPI connection."""
@@ -256,9 +303,10 @@ class BaseEngineRegistry(Generic[EngineT]):
                 return
             entries = list(cls._entries.values())
             cls._entries.clear()
-            cls._failures.clear()
             cls._pid = current_pid
 
+        with cls._lock:
+            cls._failures.clear()
         for entry in entries:
             cls._dispose_entry(entry)
 
@@ -283,17 +331,21 @@ class BaseEngineRegistry(Generic[EngineT]):
         fingerprint: tuple[Any, ...],
     ) -> None:
         """Raise a cached creation error while its backoff window is active."""
-        failure = cls._failures.get(key)
+        failure = cls._read_failure(key)
         if failure is None:
             return
-        if failure.fingerprint != fingerprint:
-            cls._failures.pop(key, None)
+        fingerprint_text = repr(fingerprint)
+        if failure["fingerprint"] != fingerprint_text:
+            cls._delete_failure(key)
             return
-        if failure.expires_at <= time.monotonic():
-            cls._failures.pop(key, None)
-            return
-        cls._stats["failure_backoffs"] += 1
-        raise failure.error
+        with cls._lock:
+            cls._stats["failure_backoffs"] += 1
+        if "error" in failure:
+            raise failure["error"]
+        raise RuntimeError(
+            "Cached database connection failure: "
+            f"{failure['error_type']}: {failure['message']}"
+        )
 
     @classmethod
     def _record_failure(
@@ -304,12 +356,92 @@ class BaseEngineRegistry(Generic[EngineT]):
         error: Exception,
     ) -> None:
         """Store an engine creation failure for short-term backoff."""
+        if failure_backend.get_failure_backend_name() == "memory":
+            with cls._lock:
+                cls._failures[key] = FailureEntry(
+                    fingerprint=fingerprint,
+                    error=error,
+                    expires_at=time.monotonic() + cls._failure_ttl_seconds,
+                )
+            return
+        record = {
+            "fingerprint": repr(fingerprint),
+            "error_type": type(error).__name__,
+            "message": str(error),
+        }
+        try:
+            failure_backend.write_failure(cls.__name__, key, record, cls._failure_ttl_seconds)
+        except Exception:
+            # Preserve backoff locally if shared storage is unavailable.
+            with cls._lock:
+                cls._failures[key] = FailureEntry(
+                    fingerprint=fingerprint,
+                    error=error,
+                    expires_at=time.monotonic() + cls._failure_ttl_seconds,
+                )
+
+    @classmethod
+    def _read_failure(cls, key: str) -> dict[str, Any] | None:
+        """Read failure metadata from the selected backend."""
+        if failure_backend.get_failure_backend_name() == "memory":
+            with cls._lock:
+                failure = cls._failures.get(key)
+                if failure is None:
+                    return None
+                if failure.expires_at <= time.monotonic():
+                    cls._failures.pop(key, None)
+                    return None
+                return {
+                    "fingerprint": repr(failure.fingerprint),
+                    "error": failure.error,
+                }
+        try:
+            shared_failure = failure_backend.read_failure(cls.__name__, key)
+        except Exception:
+            shared_failure = None
+        if shared_failure is not None:
+            return shared_failure
+
+        # Local entries are also checked when Redis is healthy, since they may
+        # have been recorded during a previous Redis outage.
         with cls._lock:
-            cls._failures[key] = FailureEntry(
-                fingerprint=fingerprint,
-                error=error,
-                expires_at=time.monotonic() + cls._failure_ttl_seconds,
-            )
+            failure = cls._failures.get(key)
+            if failure is None:
+                return None
+            if failure.expires_at <= time.monotonic():
+                cls._failures.pop(key, None)
+                return None
+            return {
+                "fingerprint": repr(failure.fingerprint),
+                "error": failure.error,
+            }
+
+    @classmethod
+    def _delete_failure(cls, key: str) -> None:
+        """Remove failure state for a registry key."""
+        if failure_backend.get_failure_backend_name() == "memory":
+            with cls._lock:
+                cls._failures.pop(key, None)
+            return
+        try:
+            failure_backend.delete_failure(cls.__name__, key)
+        except Exception:
+            pass
+        with cls._lock:
+            cls._failures.pop(key, None)
+
+    @classmethod
+    def _clear_failures(cls) -> None:
+        """Clear failure state for this registry."""
+        if failure_backend.get_failure_backend_name() == "memory":
+            cls._failures.clear()
+            return
+        try:
+            failure_backend.clear_failures(cls.__name__)
+        except Exception:
+            pass
+        with cls._lock:
+            cls._failures.clear()
 
     @classmethod
     def _dispose_entry(cls, entry: RegistryEntry[EngineT]) -> None:
