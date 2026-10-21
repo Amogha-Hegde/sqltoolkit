@@ -356,54 +356,22 @@ class BaseEngineRegistry(Generic[EngineT]):
         error: Exception,
     ) -> None:
         """Store an engine creation failure for short-term backoff."""
-        if failure_backend.get_failure_backend_name() == "memory":
-            with cls._lock:
-                cls._failures[key] = FailureEntry(
-                    fingerprint=fingerprint,
-                    error=error,
-                    expires_at=time.monotonic() + cls._failure_ttl_seconds,
-                )
+        backend = failure_backend.get_failure_backend_name()
+        if backend == "none":
             return
-        record = {
-            "fingerprint": repr(fingerprint),
-            "error_type": type(error).__name__,
-            "message": str(error),
-        }
-        try:
-            failure_backend.write_failure(cls.__name__, key, record, cls._failure_ttl_seconds)
-        except Exception:
-            # Preserve backoff locally if shared storage is unavailable.
-            with cls._lock:
-                cls._failures[key] = FailureEntry(
-                    fingerprint=fingerprint,
-                    error=error,
-                    expires_at=time.monotonic() + cls._failure_ttl_seconds,
-                )
+        with cls._lock:
+            cls._failures[key] = FailureEntry(
+                fingerprint=fingerprint,
+                error=error,
+                expires_at=time.monotonic() + cls._failure_ttl_seconds,
+            )
 
     @classmethod
     def _read_failure(cls, key: str) -> dict[str, Any] | None:
         """Read failure metadata from the selected backend."""
-        if failure_backend.get_failure_backend_name() == "memory":
-            with cls._lock:
-                failure = cls._failures.get(key)
-                if failure is None:
-                    return None
-                if failure.expires_at <= time.monotonic():
-                    cls._failures.pop(key, None)
-                    return None
-                return {
-                    "fingerprint": repr(failure.fingerprint),
-                    "error": failure.error,
-                }
-        try:
-            shared_failure = failure_backend.read_failure(cls.__name__, key)
-        except Exception:
-            shared_failure = None
-        if shared_failure is not None:
-            return shared_failure
-
-        # Local entries are also checked when Redis is healthy, since they may
-        # have been recorded during a previous Redis outage.
+        backend = failure_backend.get_failure_backend_name()
+        if backend == "none":
+            return None
         with cls._lock:
             failure = cls._failures.get(key)
             if failure is None:
@@ -419,27 +387,12 @@ class BaseEngineRegistry(Generic[EngineT]):
     @classmethod
     def _delete_failure(cls, key: str) -> None:
         """Remove failure state for a registry key."""
-        if failure_backend.get_failure_backend_name() == "memory":
-            with cls._lock:
-                cls._failures.pop(key, None)
-            return
-        try:
-            failure_backend.delete_failure(cls.__name__, key)
-        except Exception:
-            pass
         with cls._lock:
             cls._failures.pop(key, None)
 
     @classmethod
     def _clear_failures(cls) -> None:
         """Clear failure state for this registry."""
-        if failure_backend.get_failure_backend_name() == "memory":
-            cls._failures.clear()
-            return
-        try:
-            failure_backend.clear_failures(cls.__name__)
-        except Exception:
-            pass
         with cls._lock:
             cls._failures.clear()
 

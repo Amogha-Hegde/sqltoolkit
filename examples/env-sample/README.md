@@ -15,6 +15,6 @@ Each `*.sample.env` file includes both `PRIMARY` and `REPLICA` examples for a si
 
 ## Failure Backoff Storage
 
-The sample files include common registry settings. Failure records are stored in memory by default. To share them through Redis, install `sqltoolkit[redis]`, set `SQLTOOLKIT_FAILURE_BACKEND=redis`, and configure `SQLTOOLKIT_REDIS_URL`. If Redis is unavailable, the process falls back to in-memory failure records until Redis is reachable again. Those fallback records are local to each process.
+The sample files include common registry settings. Failure records are stored in process-local memory by default. Set `SQLTOOLKIT_FAILURE_BACKEND=none` to disable failure caching.
 
-`SQLTOOLKIT_REGISTRY_FAILURE_TTL` controls how long a failure is backed off. `SQLTOOLKIT_REDIS_FAILURE_PREFIX` optionally changes the Redis key prefix.
+`SQLTOOLKIT_REGISTRY_FAILURE_TTL` controls how long a failure is backed off.

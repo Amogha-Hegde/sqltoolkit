@@ -141,71 +141,20 @@ def test_connection_failure_hooks_check_record_and_clear_backoff(
 
 
 @pytest.mark.unit
-def test_redis_failure_records_fall_back_to_local_memory(
+def test_disabled_failure_backend_skips_failure_caching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "redis")
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "write_failure",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
-    )
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "read_failure",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
-    )
+    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "none")
     error = RuntimeError("database offline")
-    fingerprint = ("config",)
-    SyncEngineRegistry._record_failure(key="db", fingerprint=fingerprint, error=error)
+    SyncEngineRegistry._failures.clear()
 
-    with pytest.raises(RuntimeError, match="database offline"):
-        SyncEngineRegistry._raise_if_failure_backoff_active(key="db", fingerprint=fingerprint)
+    SyncEngineRegistry._record_failure(key="disabled", fingerprint=("config",), error=error)
 
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "delete_failure",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
+    assert SyncEngineRegistry._read_failure("disabled") is None
+    assert "disabled" not in SyncEngineRegistry._failures
+    SyncEngineRegistry._raise_if_failure_backoff_active(
+        key="disabled", fingerprint=("config",)
     )
-    SyncEngineRegistry._delete_failure("db")
-    assert "db" not in SyncEngineRegistry._failures
-
-    SyncEngineRegistry._failures["leftover"] = FailureEntry(
-        fingerprint=fingerprint,
-        error=error,
-        expires_at=base_module.time.monotonic() + 5,
-    )
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "clear_failures",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
-    )
-    SyncEngineRegistry._clear_failures()
-    assert not SyncEngineRegistry._failures
-
-
-@pytest.mark.unit
-def test_redis_failure_record_is_shared_and_config_scoped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "redis")
-    record = {"fingerprint": "('one',)", "error_type": "ValueError", "message": "bad"}
-    deleted: list[str] = []
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "read_failure",
-        lambda registry, key: record,
-    )
-    monkeypatch.setattr(
-        base_module.failure_backend,
-        "delete_failure",
-        lambda registry, key: deleted.append(key),
-    )
-    with pytest.raises(RuntimeError, match="ValueError: bad"):
-        SyncEngineRegistry._raise_if_failure_backoff_active(key="shared", fingerprint=("one",))
-
-    SyncEngineRegistry._raise_if_failure_backoff_active(key="shared", fingerprint=("two",))
-    assert deleted == ["shared"]
 
 
 @pytest.mark.unit
