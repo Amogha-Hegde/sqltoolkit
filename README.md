@@ -10,6 +10,14 @@
 - Sync and async engine interfaces
 - Separate engine caches by alias and sync/async interface
 
+SQLAlchemy 2.1 is supported. It requires Python 3.11 or newer; on older supported Python versions, package installers select a compatible SQLAlchemy 2.0 release. SQLAlchemy 2.1 no longer installs `greenlet` by default. SQLToolkit includes SQLAlchemy's `asyncio` extra as a base dependency because it exposes async APIs from the package:
+
+```bash
+pip install "sqltoolkit[postgresql]"
+```
+
+Replace `postgresql` with the driver extra for your database (`mysql`, `oracle`, `mssql`, or `sqlite`). The `all` extra installs all supported database drivers.
+
 ## Public APIs
 
 ### 1. File-based configuration
@@ -120,6 +128,67 @@ async_engine = EngineRegistry.get_async_engine(
     database="mydb",
 )
 ```
+
+### Using synchronous and asynchronous connections
+
+An engine is a process-local connection pool. Getting an engine does not usually open a database connection; SQLAlchemy checks out a pooled connection when you connect or run a query. Use the matching sync or async API for your application.
+
+Engine getters such as `get_engine()`, `get_async_engine()`, `get_engine_from_env()`, and the `EngineRegistry.get_engine()` methods are designed to be called repeatedly with the same key/alias and configuration: they return the cached engine. Reuse the engine for the lifetime of the application rather than creating one per request or query. Calling with the same registry key but different settings raises `ValueError`. File- and environment-based getters key the cache by dialect, alias, and sync/async mode, so use a stable alias for each database role.
+
+For a direct connection, use a context manager so the connection returns to the pool when the block ends:
+
+```python
+from sqltoolkit import get_engine, get_async_engine
+
+# Synchronous
+engine = get_engine(alias="primary", dialect="postgresql", config_path="db_config.json")
+with engine.connect() as connection:
+    rows = connection.exec_driver_sql("SELECT 1").all()
+
+# Asynchronous (use an async driver in the configured URL)
+async_engine = get_async_engine(
+    alias="primary", dialect="postgresql", config_path="db_config.json"
+)
+
+async def fetch_value() -> int:
+    async with async_engine.connect() as connection:
+        result = await connection.exec_driver_sql("SELECT 1")
+        return result.scalar_one()
+```
+
+For ORM work, create a session per unit of work. Sessions and checked-out connections should not be shared between concurrent threads or async tasks. The session factories below are cached; each call creates a fresh session:
+
+```python
+from sqltoolkit.connection import EngineRegistry
+from sqltoolkit import get_engine, get_async_engine
+
+sync_engine = get_engine(alias="primary", config_path="db_config.json")
+SyncSession = EngineRegistry.get_sessionmaker(
+    key="primary", engine=sync_engine, expire_on_commit=False
+)
+
+with SyncSession.begin() as session:
+    # session.add(...), session.execute(...)
+    ...
+
+async_engine = get_async_engine(alias="primary", config_path="db_config.json")
+AsyncSession = EngineRegistry.get_async_sessionmaker(
+    key="primary", engine=async_engine, expire_on_commit=False
+)
+
+async def update_data() -> None:
+    async with AsyncSession.begin() as session:
+        # await session.execute(...)
+        ...
+```
+
+`Session.begin()` and `AsyncSession.begin()` commit on successful exit and roll back if an exception occurs. If you use `session_factory()` or `async_session_factory()` to get an individual session, close it with `with session:` or `async with session:` (or call `close()` / `await close()`) so checked-out connections are returned promptly. Dispose engines during application shutdown when they are no longer needed; async applications should use SQLAlchemy's `await async_engine.dispose()`.
+
+Reuse guidance:
+
+- **Call repeatedly:** engine getters, `EngineRegistry.get_sessionmaker()`, and `EngineRegistry.get_async_sessionmaker()` with the same key, engine, and options. The getters return cached objects. Calling `SessionMaker()` or `AsyncSessionMaker()` repeatedly is also expected; each call returns a new session.
+- **Use briefly, then close:** each `engine.connect()` / `async_engine.connect()` checkout and each `Session` / `AsyncSession`. Do not keep them in global variables or share them between concurrent work. Context managers close them when the block ends.
+- **Call at shutdown or when retiring a database:** `engine.dispose()` / `await async_engine.dispose()` releases the pool's connections. The engine object can open new connections after disposal, so disposal is cleanup, not a permanent invalidation. `EngineRegistry.dispose_engine(...)` removes the cached entry; the next getter call can create a new engine. `EngineRegistry.dispose_all()` is intended for application shutdown or tests, not for each request.
 
 Supported structured fields by dialect:
 

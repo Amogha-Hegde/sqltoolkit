@@ -41,6 +41,12 @@ class DummyAsyncEngine:
         self.sync_engine = DummySyncEngine()
 
 
+class EngineWithDialect(DummySyncEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dialect = object()
+
+
 @pytest.fixture(autouse=True)
 def _reset_registry_state() -> None:
     EngineRegistry.dispose_all()
@@ -98,6 +104,108 @@ def test_configure_engine_uses_sync_engine_for_async(monkeypatch: pytest.MonkeyP
         EngineConfig(url="sqlite://", on_connect_statements=("PRAGMA busy_timeout = 5000",)),
     )
     assert listened == [engine.sync_engine]
+
+
+@pytest.mark.unit
+def test_connection_failure_hooks_check_record_and_clear_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listeners: dict[tuple[object, str], object] = {}
+    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "memory")
+    monkeypatch.setattr(
+        base_module.event,
+        "listen",
+        lambda target, event_name, fn: listeners.__setitem__((target, event_name), fn),
+    )
+    checked: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        SyncEngineRegistry,
+        "_raise_if_failure_backoff_active",
+        lambda **kwargs: checked.append(kwargs),
+    )
+    engine = EngineWithDialect()
+    config = EngineConfig("sqlite://")
+    SyncEngineRegistry._configure_engine(engine, config, key="hook-key")
+
+    check = listeners[(engine.dialect, "do_connect")]
+    check(None, None, [], {})
+    assert checked == [{"key": "hook-key", "fingerprint": config.fingerprint()}]
+
+    handle_error = listeners[(engine, "handle_error")]
+    handle_error(type("Context", (), {"connection": None, "original_exception": RuntimeError("offline")})())
+    assert SyncEngineRegistry._failures["hook-key"].error.args == ("offline",)
+
+    on_connect = listeners[(engine, "connect")]
+    on_connect(None, None)
+    assert "hook-key" not in SyncEngineRegistry._failures
+
+
+@pytest.mark.unit
+def test_redis_failure_records_fall_back_to_local_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "redis")
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "write_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
+    )
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "read_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
+    )
+    error = RuntimeError("database offline")
+    fingerprint = ("config",)
+    SyncEngineRegistry._record_failure(key="db", fingerprint=fingerprint, error=error)
+
+    with pytest.raises(RuntimeError, match="database offline"):
+        SyncEngineRegistry._raise_if_failure_backoff_active(key="db", fingerprint=fingerprint)
+
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "delete_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
+    )
+    SyncEngineRegistry._delete_failure("db")
+    assert "db" not in SyncEngineRegistry._failures
+
+    SyncEngineRegistry._failures["leftover"] = FailureEntry(
+        fingerprint=fingerprint,
+        error=error,
+        expires_at=base_module.time.monotonic() + 5,
+    )
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "clear_failures",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError("redis down")),
+    )
+    SyncEngineRegistry._clear_failures()
+    assert not SyncEngineRegistry._failures
+
+
+@pytest.mark.unit
+def test_redis_failure_record_is_shared_and_config_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SQLTOOLKIT_FAILURE_BACKEND", "redis")
+    record = {"fingerprint": "('one',)", "error_type": "ValueError", "message": "bad"}
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "read_failure",
+        lambda registry, key: record,
+    )
+    monkeypatch.setattr(
+        base_module.failure_backend,
+        "delete_failure",
+        lambda registry, key: deleted.append(key),
+    )
+    with pytest.raises(RuntimeError, match="ValueError: bad"):
+        SyncEngineRegistry._raise_if_failure_backoff_active(key="shared", fingerprint=("one",))
+
+    SyncEngineRegistry._raise_if_failure_backoff_active(key="shared", fingerprint=("two",))
+    assert deleted == ["shared"]
 
 
 @pytest.mark.unit

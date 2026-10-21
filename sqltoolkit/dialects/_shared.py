@@ -64,7 +64,7 @@ def normalize_db_url(db_url: str) -> str:
 
     parsed = make_url(db_url)
     if isinstance(parsed, URL):
-        return parsed.render_as_string(hide_password=False)
+        return render_url(parsed)
     return str(parsed)
 
 
@@ -78,8 +78,16 @@ def merge_db_url_query(db_url: str, query: Mapping[str, Any]) -> str:
     parsed = make_url(db_url)
     merged_query = {**parsed.query, **stringify_query(query)}
     if isinstance(parsed, URL):
-        return parsed.set(query=merged_query).render_as_string(hide_password=False)
+        return render_url(parsed.set(query=merged_query))
     return str(parsed)
+
+
+def render_url(url: URL) -> str:
+    """Render a URL, preserving SQLite's conventional in-memory spelling."""
+    rendered = url.render_as_string(hide_password=False)
+    if url.drivername.startswith("sqlite+") and url.database == ":memory:":
+        rendered = re.sub(r"/%3Amemory%3A", "/:memory:", rendered, flags=re.IGNORECASE)
+    return rendered
 
 
 def validate_setting_name(name: str, *, dialect: str) -> str:

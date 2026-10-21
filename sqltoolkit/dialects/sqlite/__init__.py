@@ -9,6 +9,7 @@ from sqlalchemy.engine import URL
 from sqltoolkit.dialects._shared import (
     ensure_empty,
     pop_bool,
+    render_url,
     sql_quote_string,
     stringify_query,
     stringify_setting_value,
@@ -43,11 +44,11 @@ def build_sqlite_url(
 
     ensure_empty(config, "sqlite")
 
-    return URL.create(
+    return render_url(URL.create(
         drivername=f"sqlite+{driver}",
         database=str(database_name),
         query=stringify_query(query),
-    ).render_as_string(hide_password=False)
+    ))
 
 
 def build_sqlite_session_statements(settings: dict[str, Any]) -> list[str]:

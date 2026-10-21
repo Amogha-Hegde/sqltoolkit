@@ -240,7 +240,7 @@ class BaseEngineRegistry(Generic[EngineT]):
         target = engine.sync_engine if isinstance(engine, AsyncEngine) else engine
         statements = config.on_connect_statements
 
-        if key is not None:
+        if key is not None and hasattr(target, "dialect"):
             fingerprint = config.fingerprint()
 
             def check_connection_backoff(

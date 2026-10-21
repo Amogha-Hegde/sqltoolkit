@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "sqlalchemy>=2.0.48",
+    "sqlalchemy[asyncio]>=2.0.48",
     "alembic>=1.18.4",
     "alembic-postgresql-enum>=1.10.0",
     "alembic-utils>=0.8.8",
