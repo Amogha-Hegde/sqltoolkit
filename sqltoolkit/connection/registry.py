@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from importlib import import_module
 from typing import Any, Mapping, cast
 
@@ -197,11 +198,28 @@ class EngineRegistry:
 
     @classmethod
     def dispose_all(cls) -> None:
-        """Dispose every cached engine and sessionmaker."""
+        """Synchronously dispose cached engines outside an event loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(
+                "Cannot synchronously dispose async engines while an event loop is running; "
+                "await EngineRegistry.adispose_all() instead"
+            )
         SyncSessionRegistry.dispose_all()
         AsyncSessionRegistry.dispose_all()
         SyncEngineRegistry.dispose_all()
         AsyncEngineRegistry.dispose_all()
+
+    @classmethod
+    async def adispose_all(cls) -> None:
+        """Asynchronously dispose all cached engines and sessionmakers."""
+        SyncSessionRegistry.dispose_all()
+        AsyncSessionRegistry.dispose_all()
+        SyncEngineRegistry.dispose_all()
+        await AsyncEngineRegistry.adispose_all()
 
     @classmethod
     def dispose_engine(
@@ -220,6 +238,22 @@ class EngineRegistry:
         return cls.dispose_registry_key(registry_key)
 
     @classmethod
+    async def adispose_engine(
+        cls,
+        *,
+        key: str,
+        alias: str = DEFAULT_ALIAS,
+        async_mode: bool = False,
+    ) -> bool:
+        """Dispose one cached engine and its sessionmaker asynchronously."""
+        registry_key = build_named_registry_key(
+            key=key,
+            alias=normalize_alias(alias),
+            async_mode=async_mode,
+        )
+        return await cls.adispose_registry_key(registry_key)
+
+    @classmethod
     def dispose_registry_key(cls, registry_key: str) -> bool:
         """Dispose one cache entry by its full registry key."""
         removed_session = (
@@ -230,6 +264,19 @@ class EngineRegistry:
             SyncEngineRegistry.dispose_registry_key(registry_key)
             or AsyncEngineRegistry.dispose_registry_key(registry_key)
         )
+        return removed_session or removed_engine
+
+    @classmethod
+    async def adispose_registry_key(cls, registry_key: str) -> bool:
+        """Dispose one cached engine and its sessionmaker asynchronously."""
+        removed_session = (
+            SyncSessionRegistry.dispose_registry_key(registry_key)
+            or AsyncSessionRegistry.dispose_registry_key(registry_key)
+        )
+        if registry_key.endswith(":async"):
+            removed_engine = await AsyncEngineRegistry.adispose_registry_key(registry_key)
+        else:
+            removed_engine = SyncEngineRegistry.dispose_registry_key(registry_key)
         return removed_session or removed_engine
 
     @classmethod

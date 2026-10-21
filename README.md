@@ -622,6 +622,15 @@ EngineRegistry.dispose_registry_key("postgresql:test:async")
 EngineRegistry.dispose_all()
 ```
 
+When disposing async engines from within an active event loop, use the async cleanup method:
+
+```python
+await EngineRegistry.adispose_all()
+await EngineRegistry.adispose_engine(key="default", async_mode=True)
+```
+
+The synchronous `dispose_all()` method runs async engine disposal when called outside an event loop. It raises a clear error inside a running loop so async connections are not closed through SQLAlchemy's synchronous proxy.
+
 `get_registry_stats()` returns:
 
 ```python

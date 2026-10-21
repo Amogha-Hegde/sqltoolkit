@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from importlib import import_module
 
 import pytest
@@ -39,6 +40,9 @@ class DummySyncEngine:
 class DummyAsyncEngine:
     def __init__(self) -> None:
         self.sync_engine = DummySyncEngine()
+
+    async def dispose(self) -> None:
+        self.sync_engine.dispose()
 
 
 class EngineWithDialect(DummySyncEngine):
@@ -155,6 +159,95 @@ def test_disabled_failure_backend_skips_failure_caching(
     SyncEngineRegistry._raise_if_failure_backoff_active(
         key="disabled", fingerprint=("config",)
     )
+
+
+@pytest.mark.unit
+def test_async_registry_disposes_engine_with_async_sqlalchemy_api() -> None:
+    class AsyncDisposable:
+        disposed = False
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    engine = AsyncDisposable()
+    key = "postgresql:dispose-test:async"
+    AsyncEngineRegistry._entries[key] = RegistryEntry(
+        engine=engine, config=EngineConfig("postgresql://localhost/db")
+    )
+
+    asyncio.run(AsyncEngineRegistry.adispose_all())
+
+    assert engine.disposed is True
+    assert key not in AsyncEngineRegistry._entries
+
+
+@pytest.mark.unit
+def test_async_registry_sync_dispose_all_runs_async_disposal() -> None:
+    class AsyncDisposable:
+        disposed = False
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    engine = AsyncDisposable()
+    key = "postgresql:sync-dispose-test:async"
+    AsyncEngineRegistry._entries[key] = RegistryEntry(
+        engine=engine, config=EngineConfig("postgresql://localhost/db")
+    )
+
+    AsyncEngineRegistry.dispose_all()
+
+    assert engine.disposed is True
+    assert key not in AsyncEngineRegistry._entries
+
+
+@pytest.mark.unit
+def test_registry_async_disposal_facade_and_sync_guard() -> None:
+    class AsyncDisposable:
+        disposed = False
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError, match="await EngineRegistry.adispose_all"):
+            EngineRegistry.dispose_all()
+
+        engine = AsyncDisposable()
+        key = "postgresql:facade-dispose:async"
+        AsyncEngineRegistry._entries[key] = RegistryEntry(
+            engine=engine, config=EngineConfig("postgresql://localhost/db")
+        )
+        assert await EngineRegistry.adispose_registry_key(key) is True
+        assert engine.disposed is True
+
+        second = AsyncDisposable()
+        AsyncEngineRegistry._entries[key] = RegistryEntry(
+            engine=second, config=EngineConfig("postgresql://localhost/db")
+        )
+        await EngineRegistry.adispose_all()
+        assert second.disposed is True
+        assert key not in AsyncEngineRegistry._entries
+
+    asyncio.run(run())
+
+
+@pytest.mark.unit
+def test_async_engine_eviction_schedules_disposal_inside_running_loop() -> None:
+    class AsyncDisposable:
+        disposed = False
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    engine = AsyncDisposable()
+
+    async def run() -> None:
+        AsyncEngineRegistry._dispose_engine(engine)
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+    assert engine.disposed is True
 
 
 @pytest.mark.unit
