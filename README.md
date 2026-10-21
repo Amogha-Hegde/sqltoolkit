@@ -188,7 +188,7 @@ Reuse guidance:
 
 - **Call repeatedly:** engine getters, `EngineRegistry.get_sessionmaker()`, and `EngineRegistry.get_async_sessionmaker()` with the same key, engine, and options. The getters return cached objects. Calling `SessionMaker()` or `AsyncSessionMaker()` repeatedly is also expected; each call returns a new session.
 - **Use briefly, then close:** each `engine.connect()` / `async_engine.connect()` checkout and each `Session` / `AsyncSession`. Do not keep them in global variables or share them between concurrent work. Context managers close them when the block ends.
-- **Call at shutdown or when retiring a database:** `engine.dispose()` / `await async_engine.dispose()` releases the pool's connections. The engine object can open new connections after disposal, so disposal is cleanup, not a permanent invalidation. `EngineRegistry.dispose_engine(...)` removes the cached entry; the next getter call can create a new engine. `EngineRegistry.dispose_all()` is intended for application shutdown or tests, not for each request.
+- **Call at shutdown or when retiring a database:** `engine.dispose()` / `await async_engine.dispose()` releases the pool's connections. The engine object can open new connections after disposal, so disposal is cleanup, not a permanent invalidation. `EngineRegistry.dispose_engine(...)` removes the cached entry; the next getter call can create a new engine. Use `EngineRegistry.dispose_all()` outside an event loop, or `await EngineRegistry.adispose_all()` in async code. These are intended for application shutdown or tests, not for each request.
 
 Supported structured fields by dialect:
 
@@ -603,9 +603,9 @@ sqltoolkit/dialects/<dialect>/
 
 Oracle currently includes concrete implementations in those folders, and the other dialects include the same package structure so custom fields and functions can be added consistently.
 
-Sample configuration files for every supported dialect are available in [examples/configs](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs). Commentary for those examples is in [examples/configs/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs/README.md).
+Sample configuration files for every supported dialect are available in [examples/configs](examples/configs). Commentary for those examples is in [examples/configs/README.md](examples/configs/README.md).
 
-Sample environment files for every supported dialect are available in [examples/env-sample](/Users/amogha/PycharmProjects/sqltoolkit/examples/env-sample). Notes for those examples are in [examples/env-sample/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/env-sample/README.md).
+Sample environment files for every supported dialect are available in [examples/env-sample](examples/env-sample). Notes for those examples are in [examples/env-sample/README.md](examples/env-sample/README.md).
 
 ## Registry Operations
 
@@ -618,13 +618,13 @@ EngineRegistry.set_max_entries(512)
 EngineRegistry.get_registry_size()
 EngineRegistry.get_registry_stats()
 EngineRegistry.dispose_engine(key="default", async_mode=False)
-EngineRegistry.dispose_registry_key("postgresql:test:async")
 EngineRegistry.dispose_all()
 ```
 
-When disposing async engines from within an active event loop, use the async cleanup method:
+When disposing async engines from within an active event loop, use the async cleanup methods:
 
 ```python
+await EngineRegistry.adispose_registry_key("postgresql:test:async")
 await EngineRegistry.adispose_all()
 await EngineRegistry.adispose_engine(key="default", async_mode=True)
 ```
