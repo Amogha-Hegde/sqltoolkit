@@ -80,16 +80,16 @@ def test_env_examples_load_for_both_aliases(path: Path, alias: str) -> None:
 @pytest.mark.unit
 def test_env_aliases_match_file_aliases() -> None:
     env = {
-        "SQLTOOLKIT__POSTGRESQL__READWRITE__URL": (
+        "SQLTOOLKIT_POSTGRESQL_READWRITE_URL": (
             "postgresql+psycopg://user:password@localhost:5432/app"
         ),
-        "SQLTOOLKIT__POSTGRESQL__READWRITE__DATABASE_OPTIONS": (
+        "SQLTOOLKIT_POSTGRESQL_READWRITE_DATABASE_OPTIONS": (
             '{"application_name":"sqltoolkit"}'
         ),
-        "SQLTOOLKIT__POSTGRESQL__READWRITE__OPTIONS": (
+        "SQLTOOLKIT_POSTGRESQL_READWRITE_OPTIONS": (
             '{"pool_use_lifo": true, "pool_recycle": 1800}'
         ),
-        "SQLTOOLKIT__POSTGRESQL__READWRITE__SESSION_SETTINGS": (
+        "SQLTOOLKIT_POSTGRESQL_READWRITE_SESSION_SETTINGS": (
             '{"search_path":"app, public"}'
         ),
     }

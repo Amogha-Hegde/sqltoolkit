@@ -235,7 +235,7 @@ def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any
 
 def _build_env_prefix(*, dialect: str, alias: str) -> str:
     """Build the environment variable prefix for one database alias."""
-    return "__".join(
+    return "_".join(
         [
             ENV_PREFIX,
             dialect.upper(),
@@ -409,98 +409,98 @@ def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
     """Collect supported SQLTOOLKIT variables for one prefix into raw config."""
     data: dict[str, Any] = {}
 
-    db_url = env.get(f"{prefix}__DB_URL") or env.get(f"{prefix}__URL")
+    db_url = env.get(f"{prefix}_DB_URL") or env.get(f"{prefix}_URL")
     if db_url:
         data["db_url"] = db_url
 
-    driver = env.get(f"{prefix}__DRIVER")
+    driver = env.get(f"{prefix}_DRIVER")
     if driver:
         data["driver"] = driver
 
-    username = env.get(f"{prefix}__USERNAME") or env.get(f"{prefix}__USER")
+    username = env.get(f"{prefix}_USERNAME") or env.get(f"{prefix}_USER")
     if username:
         data["username"] = username
 
-    password = env.get(f"{prefix}__PASSWORD")
+    password = env.get(f"{prefix}_PASSWORD")
     if password:
         data["password"] = password
 
-    host = env.get(f"{prefix}__HOST")
+    host = env.get(f"{prefix}_HOST")
     if host:
         data["host"] = host
 
-    port = env.get(f"{prefix}__PORT")
+    port = env.get(f"{prefix}_PORT")
     if port:
         data["port"] = int(port)
 
-    database = env.get(f"{prefix}__DATABASE") or env.get(f"{prefix}__DBNAME")
+    database = env.get(f"{prefix}_DATABASE") or env.get(f"{prefix}_DBNAME")
     if database:
         data["database"] = database
 
-    file_path = env.get(f"{prefix}__FILE_PATH")
+    file_path = env.get(f"{prefix}_FILE_PATH")
     if file_path:
         data["file_path"] = file_path
 
-    service_name = env.get(f"{prefix}__SERVICE_NAME")
+    service_name = env.get(f"{prefix}_SERVICE_NAME")
     if service_name:
         data["service_name"] = service_name
 
-    sid = env.get(f"{prefix}__SID")
+    sid = env.get(f"{prefix}_SID")
     if sid:
         data["sid"] = sid
 
-    dsn = env.get(f"{prefix}__DSN")
+    dsn = env.get(f"{prefix}_DSN")
     if dsn:
         data["dsn"] = dsn
 
-    dsn_name = env.get(f"{prefix}__DSN_NAME")
+    dsn_name = env.get(f"{prefix}_DSN_NAME")
     if dsn_name:
         data["dsn_name"] = dsn_name
 
-    odbc_connect = env.get(f"{prefix}__ODBC_CONNECT")
+    odbc_connect = env.get(f"{prefix}_ODBC_CONNECT")
     if odbc_connect:
         data["odbc_connect"] = odbc_connect
 
-    odbc_driver = env.get(f"{prefix}__ODBC_DRIVER")
+    odbc_driver = env.get(f"{prefix}_ODBC_DRIVER")
     if odbc_driver:
         data["odbc_driver"] = odbc_driver
 
-    charset = env.get(f"{prefix}__CHARSET")
+    charset = env.get(f"{prefix}_CHARSET")
     if charset:
         data["charset"] = charset
 
-    if f"{prefix}__IN_MEMORY" in env:
-        data["in_memory"] = _bool_env(env, f"{prefix}__IN_MEMORY", False)
+    if f"{prefix}_IN_MEMORY" in env:
+        data["in_memory"] = _bool_env(env, f"{prefix}_IN_MEMORY", False)
 
-    if f"{prefix}__POOL_SIZE" in env:
-        data["pool_size"] = _int_env(env, f"{prefix}__POOL_SIZE", 5)
-    if f"{prefix}__MAX_OVERFLOW" in env:
-        data["max_overflow"] = _int_env(env, f"{prefix}__MAX_OVERFLOW", 10)
-    if f"{prefix}__POOL_PRE_PING" in env:
-        data["pool_pre_ping"] = _bool_env(env, f"{prefix}__POOL_PRE_PING", True)
-    if f"{prefix}__ECHO" in env:
-        data["echo"] = _bool_env(env, f"{prefix}__ECHO", False)
+    if f"{prefix}_POOL_SIZE" in env:
+        data["pool_size"] = _int_env(env, f"{prefix}_POOL_SIZE", 5)
+    if f"{prefix}_MAX_OVERFLOW" in env:
+        data["max_overflow"] = _int_env(env, f"{prefix}_MAX_OVERFLOW", 10)
+    if f"{prefix}_POOL_PRE_PING" in env:
+        data["pool_pre_ping"] = _bool_env(env, f"{prefix}_POOL_PRE_PING", True)
+    if f"{prefix}_ECHO" in env:
+        data["echo"] = _bool_env(env, f"{prefix}_ECHO", False)
 
-    connect_args = _json_env(env, f"{prefix}__CONNECT_ARGS", {})
+    connect_args = _json_env(env, f"{prefix}_CONNECT_ARGS", {})
     if connect_args:
         data["connect_args"] = connect_args
 
-    query = _json_env(env, f"{prefix}__QUERY", {})
+    query = _json_env(env, f"{prefix}_QUERY", {})
     if query:
         data["query"] = query
 
-    database_options = _json_env(env, f"{prefix}__DATABASE_OPTIONS", {})
+    database_options = _json_env(env, f"{prefix}_DATABASE_OPTIONS", {})
     if database_options:
         data["database_options"] = database_options
 
-    engine_options = _json_env(env, f"{prefix}__ENGINE_OPTIONS", {})
-    options = _json_env(env, f"{prefix}__OPTIONS", {})
+    engine_options = _json_env(env, f"{prefix}_ENGINE_OPTIONS", {})
+    options = _json_env(env, f"{prefix}_OPTIONS", {})
     if options:
         engine_options.update(options)
     if engine_options:
         data["engine_options"] = engine_options
 
-    session_settings = _json_env(env, f"{prefix}__SESSION_SETTINGS", {})
+    session_settings = _json_env(env, f"{prefix}_SESSION_SETTINGS", {})
     if session_settings:
         data["session_settings"] = session_settings
 

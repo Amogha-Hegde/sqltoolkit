@@ -54,7 +54,7 @@ def test_basic_config_helpers() -> None:
     assert _build_env_prefix(
         dialect="postgresql",
         alias="readwrite",
-    ) == "SQLTOOLKIT__POSTGRESQL__READWRITE"
+    ) == "SQLTOOLKIT_POSTGRESQL_READWRITE"
 
 
 @pytest.mark.unit
@@ -274,9 +274,9 @@ def test_load_config_from_env_errors_and_aliases() -> None:
         dialect="sqlite",
         alias="readwrite",
         env={
-            "SQLTOOLKIT__SQLITE__READWRITE__URL": "sqlite+pysqlite:///:memory:",
-            "SQLTOOLKIT__SQLITE__READWRITE__OPTIONS": '{"echo": true}',
-            "SQLTOOLKIT__SQLITE__READWRITE__SESSION_SETTINGS": '{"foreign_keys": true}',
+            "SQLTOOLKIT_SQLITE_READWRITE_URL": "sqlite+pysqlite:///:memory:",
+            "SQLTOOLKIT_SQLITE_READWRITE_OPTIONS": '{"echo": true}',
+            "SQLTOOLKIT_SQLITE_READWRITE_SESSION_SETTINGS": '{"foreign_keys": true}',
         },
     )
     assert config.url == "sqlite+pysqlite:///:memory:"
@@ -287,7 +287,7 @@ def test_load_config_from_env_errors_and_aliases() -> None:
         dialect="sqlite",
         alias="Analytics",
         env={
-            "SQLTOOLKIT__SQLITE__ANALYTICS__URL": "sqlite+pysqlite:///:memory:",
+            "SQLTOOLKIT_SQLITE_ANALYTICS_URL": "sqlite+pysqlite:///:memory:",
         },
     )
     assert alias_config.url == "sqlite+pysqlite:///:memory:"
