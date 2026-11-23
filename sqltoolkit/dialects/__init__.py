@@ -30,6 +30,7 @@ SUPPORTED_DIALECTS = frozenset({"postgresql", "oracle", "mysql", "mssql", "sqlit
 
 
 def normalize_dialect(dialect: str) -> str:
+    """Normalize and validate a supported dialect name."""
     normalized = dialect.strip().lower()
     if normalized not in SUPPORTED_DIALECTS:
         supported = ", ".join(sorted(SUPPORTED_DIALECTS))
@@ -43,6 +44,7 @@ def build_engine_url(
     async_mode: bool,
     config: Mapping[str, Any],
 ) -> str:
+    """Build a SQLAlchemy database URL from raw dialect config."""
     dialect_name = normalize_dialect(dialect)
     data = dict(config)
     db_url = data.pop("db_url", None) or data.pop("url", None)
@@ -71,6 +73,7 @@ def build_session_statements(
     dialect: str,
     settings: Mapping[str, Any],
 ) -> list[str]:
+    """Build backend-specific session setup statements."""
     dialect_name = normalize_dialect(dialect)
     mapping = as_mapping(settings)
     if not mapping:

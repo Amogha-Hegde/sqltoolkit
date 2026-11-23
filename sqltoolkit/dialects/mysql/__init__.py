@@ -22,6 +22,7 @@ def build_mysql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build a MySQL SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or ("aiomysql" if async_mode else "pymysql")
     charset = config.pop("charset", None)
     if charset is not None:
@@ -46,6 +47,7 @@ def build_mysql_url(
 
 
 def build_mysql_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build MySQL per-connection setup statements."""
     assignments: list[str] = []
     for name, value in settings.items():
         setting_name = validate_setting_name(str(name), dialect="mysql")

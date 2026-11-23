@@ -19,12 +19,12 @@ The package provides:
 ## Working approach
 
 1. Read the relevant source files before editing. Start with:
-   - `sqltoolkit/connection/registry.py` for engine caching, disposal, and public factories
-   - `sqltoolkit/connection/config.py` for config parsing, defaults, and validation
-   - `sqltoolkit/dialects/` for dialect-specific fields and URL construction
-2. Preserve the public API exported from `sqltoolkit/__init__.py` and `sqltoolkit/connection/__init__.py` unless the user explicitly asks for a breaking change.
+   - `../../../connection/registry.py` for engine caching, disposal, and public factories
+   - `../../../connection/config.py` for config parsing, defaults, and validation
+   - `../../../dialects` for dialect-specific fields and URL construction
+2. Preserve the public API exported from `../../../__init__.py` and `sqltoolkit/connection/__init__.py` unless the user explicitly asks for a breaking change.
 3. Keep sync and async behavior aligned unless there is a deliberate dialect-specific reason not to.
-4. When changing config semantics, update both code and `README.md` so examples and env/file formats stay accurate.
+4. When changing config semantics, update both code and `../../../../README.md` so examples and env/file formats stay accurate.
 5. Prefer small targeted changes. Avoid broad refactors unless the task requires them.
 
 ## Validation

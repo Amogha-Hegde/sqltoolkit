@@ -5,60 +5,169 @@
 ## Features
 
 - Thread-safe engine management
-- Multi-tenant database routing
+- Alias-based database routing
 - Centralized configuration
 - Sync and async engine interfaces
-- Separate readonly and readwrite engine registries
+- Separate engine caches by alias and sync/async interface
+
+SQLAlchemy 2.1 is supported. It requires Python 3.11 or newer; on older supported Python versions, package installers select a compatible SQLAlchemy 2.0 release. SQLAlchemy 2.1 no longer installs `greenlet` by default. SQLToolkit includes SQLAlchemy's `asyncio` extra as a base dependency because it exposes async APIs from the package:
+
+```bash
+pip install "sqltoolkit[postgresql]"
+```
+
+Replace `postgresql` with the driver extra for your database (`mysql`, `oracle`, `mssql`, or `sqlite`). The `all` extra installs all supported database drivers.
 
 ## Public APIs
 
-### 1. Environment-based configuration
+### 1. File-based configuration
 
 ```python
-from sqltoolkit.connection import get_engine, get_async_engine
+from sqltoolkit import get_engine, get_async_engine
 
-engine = get_engine(dialect="postgresql", tenant="tenantA", access_mode="readwrite")
-async_engine = get_async_engine(dialect="postgresql", tenant="tenantA", access_mode="readonly")
+engine = get_engine(alias="test")
+async_engine = get_async_engine(alias="test")
+```
+
+By default, these use `dialect="postgresql"` and `config_path="db_config.json"`.
+Override either value when needed:
+
+```python
+from sqltoolkit import get_engine
+
+engine = get_engine(
+    alias="test",
+    dialect="sqlite",
+    config_path="sqlite_config.ini",
+)
+```
+
+The file config shape is:
+
+```json
+{
+  "databases": {
+    "postgresql": {
+      "test": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app"
+      }
+    }
+  }
+}
+```
+
+`alias` is the only routing name. Use aliases that match your app, such as
+`test`, `primary`, `replica`, `analytics`, or `migration`. Aliases are normalized
+by trimming whitespace and lowercasing.
+
+### Settings module override
+
+Set `SQLTOOLKIT_SETTINGS_BACKEND` to the dotted Python import path of a settings
+module. The module must be importable by the Python process running sqltoolkit
+(for example, it is in the application package or on `PYTHONPATH`). Set the
+variable in the environment before starting the application:
+
+```bash
+export SQLTOOLKIT_SETTINGS_BACKEND=myapp.settings
+```
+
+PowerShell:
+
+```powershell
+$env:SQLTOOLKIT_SETTINGS_BACKEND = "myapp.settings"
+```
+
+The module becomes the complete configuration source for `get_engine()`,
+`get_async_engine()`, and the `*_from_env()` / `*_from_file()` getters. When
+set, sqltoolkit does not read the selected JSON/INI file or
+`SQLTOOLKIT_...` database variables. The module must expose `DATABASES`, a
+mapping of dialect → alias → settings, with the same per-database fields used
+in file configuration:
+
+```python
+# myapp/settings.py
+DATABASES = {
+    "postgresql": {
+        "primary": {
+            # Either provide a SQLAlchemy URL...
+            "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True,
+            "echo": False,
+            "connect_args": {"connect_timeout": 5},
+            "engine_options": {"pool_recycle": 1800},
+            "session_settings": {"application_name": "myapp"},
+        },
+        "analytics": {
+            # ...or provide structured URL fields instead.
+            "driver": "psycopg",
+            "username": "analytics_user",
+            "password": "secret",
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "analytics",
+        },
+    },
+    "sqlite": {
+        "test": {"db_url": "sqlite+pysqlite:///:memory:"},
+    },
+}
+```
+
+Choose the entry in the module with the normal getter arguments, for example
+`get_engine(alias="primary", dialect="postgresql")`. Async getters use the
+same entry and select an async SQLAlchemy driver when constructing the URL, so
+configure an async-compatible driver (such as `asyncpg`) for async usage.
+Entries can use `db_url` (or its alias `url`), dialect-specific structured
+fields, and the common extras `database_options`, `query`, `connect_args`,
+`engine_options` (or `options`), `session_settings`, and SQLAlchemy pool
+options. See [Common file-config extras](#common-file-config-extras) and
+[Structured session settings by backend](#structured-session-settings-by-backend)
+for details. If the variable is unset, existing file- and environment-based
+behavior is unchanged.
+
+### 2. Environment-based configuration
+
+```python
+from sqltoolkit import get_engine_from_env, get_async_engine_from_env
+
+engine = get_engine_from_env(alias="test")
+async_engine = get_async_engine_from_env(alias="test")
 ```
 
 Environment variable pattern:
 
 ```text
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DB_URL
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DRIVER
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__USERNAME
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__PASSWORD
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__HOST
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__PORT
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DATABASE
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__POOL_SIZE
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__MAX_OVERFLOW
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__POOL_PRE_PING
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ECHO
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__CONNECT_ARGS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__QUERY
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__DATABASE_OPTIONS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__SESSION_SETTINGS
-SQLTOOLKIT__{DIALECT}__{TENANT}__{ACCESS_MODE}__ENGINE_OPTIONS
+SQLTOOLKIT_{DIALECT}_{ALIAS}_DB_URL
+SQLTOOLKIT_{DIALECT}_{ALIAS}_DRIVER
+SQLTOOLKIT_{DIALECT}_{ALIAS}_USERNAME
+SQLTOOLKIT_{DIALECT}_{ALIAS}_PASSWORD
+SQLTOOLKIT_{DIALECT}_{ALIAS}_HOST
+SQLTOOLKIT_{DIALECT}_{ALIAS}_PORT
+SQLTOOLKIT_{DIALECT}_{ALIAS}_DATABASE
+SQLTOOLKIT_{DIALECT}_{ALIAS}_POOL_SIZE
+SQLTOOLKIT_{DIALECT}_{ALIAS}_MAX_OVERFLOW
+SQLTOOLKIT_{DIALECT}_{ALIAS}_POOL_PRE_PING
+SQLTOOLKIT_{DIALECT}_{ALIAS}_ECHO
+SQLTOOLKIT_{DIALECT}_{ALIAS}_CONNECT_ARGS
+SQLTOOLKIT_{DIALECT}_{ALIAS}_QUERY
+SQLTOOLKIT_{DIALECT}_{ALIAS}_DATABASE_OPTIONS
+SQLTOOLKIT_{DIALECT}_{ALIAS}_SESSION_SETTINGS
+SQLTOOLKIT_{DIALECT}_{ALIAS}_ENGINE_OPTIONS
 ```
 
 Example:
 
 ```text
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__USERNAME=user
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__PASSWORD='p@ss:/# word%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__READWRITE__DATABASE=app
-
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__USERNAME=readonly
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__PASSWORD='r3@d:/# only%'
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__HOST=localhost
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__PORT=5432
-SQLTOOLKIT__POSTGRESQL__TENANTA__READONLY__DATABASE=app
+SQLTOOLKIT_POSTGRESQL_TEST_USERNAME=user
+SQLTOOLKIT_POSTGRESQL_TEST_PASSWORD='p@ss:/# word%'
+SQLTOOLKIT_POSTGRESQL_TEST_HOST=localhost
+SQLTOOLKIT_POSTGRESQL_TEST_PORT=5432
+SQLTOOLKIT_POSTGRESQL_TEST_DATABASE=app
 ```
 
-### 2. Global engine registry
+### 3. Global engine registry
 
 ```python
 from sqltoolkit.connection import EngineRegistry
@@ -74,7 +183,6 @@ engine = EngineRegistry.get_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    access_mode="readwrite",
 )
 
 async_engine = EngineRegistry.get_async_engine(
@@ -85,9 +193,161 @@ async_engine = EngineRegistry.get_async_engine(
     host="localhost",
     port=5432,
     database="mydb",
-    access_mode="readonly",
 )
 ```
+
+### Using synchronous and asynchronous connections
+
+An engine is a process-local connection pool. Getting an engine does not usually open a database connection; SQLAlchemy checks out a pooled connection when you connect or run a query. Use the matching sync or async API for your application.
+
+Engine getters such as `get_engine()`, `get_async_engine()`, `get_engine_from_env()`, and the `EngineRegistry.get_engine()` methods are designed to be called repeatedly with the same key/alias and configuration: they return the cached engine. Reuse the engine for the lifetime of the application rather than creating one per request or query. Calling with the same registry key but different settings raises `ValueError`. File- and environment-based getters key the cache by dialect, alias, and sync/async mode, so use a stable alias for each database role.
+
+### Using engines with process workers
+
+The engine registry and its connection pools belong to one process. Arrange for
+each worker process to create or retrieve its engine after that worker starts.
+Avoid opening connections in a parent process before it forks. The registry
+detects a fork and clears inherited entries when the child next uses it, but
+worker startup initialization makes ownership explicit and avoids carrying
+parent-created pool state into workers.
+
+#### Gunicorn
+
+For Gunicorn, initialize the engine from application startup or a worker hook,
+not while importing the application in the master process. This also applies
+when using `preload_app = True`:
+
+```python
+# myapp/app.py (FastAPI example)
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from sqltoolkit import get_engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.db_engine = get_engine(alias="primary")
+    yield
+    app.state.db_engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+```
+
+Gunicorn starts the ASGI worker, then the worker runs the app lifespan. For a
+synchronous WSGI app, use Gunicorn's `post_fork` hook to initialize application
+database state in each worker. Do not call `get_engine()` at module import time
+in code that the Gunicorn master imports before forking.
+
+For example, a WSGI application's Gunicorn config can initialize a module
+after each fork:
+
+```python
+# gunicorn.conf.py
+def post_fork(server, worker):
+    from myapp.db import initialize_database
+
+    initialize_database()
+```
+
+`initialize_database()` should call `get_engine()` and store the result for
+that worker to reuse.
+
+#### Uvicorn
+
+Use the ASGI lifespan hook for initialization and cleanup. It runs in each
+server worker, including when Uvicorn starts multiple workers with
+`--workers`:
+
+```python
+# Same FastAPI lifespan pattern as above
+uvicorn.run("myapp.app:app", workers=4)
+```
+
+Keep engine acquisition out of module-level application setup; acquire it in
+lifespan or lazily inside a request dependency. Each worker then gets its own
+process-local cached engine. Use `await async_engine.dispose()` in an async
+lifespan when using `get_async_engine()`.
+
+#### Celery prefork workers
+
+With Celery's prefork pool, create database resources in the child process via
+`worker_process_init`, rather than in the parent when the Celery app is
+imported:
+
+```python
+from celery.signals import worker_process_init
+from sqltoolkit import get_engine
+
+db_engine = None
+
+
+@worker_process_init.connect
+def initialize_worker_database(**kwargs):
+    global db_engine
+    db_engine = get_engine(alias="primary")
+```
+
+Tasks in that child can reuse `db_engine`. Close individual connections and
+sessions with context managers. If you also wire cleanup to a worker shutdown
+hook, call `db_engine.dispose()` there. For Celery pools that use threads
+instead of processes, the worker shares one process-local engine as usual.
+
+For a direct connection, use a context manager so the connection returns to the pool when the block ends:
+
+```python
+from sqltoolkit import get_engine, get_async_engine
+
+# Synchronous
+engine = get_engine(alias="primary", dialect="postgresql", config_path="db_config.json")
+with engine.connect() as connection:
+    rows = connection.exec_driver_sql("SELECT 1").all()
+
+# Asynchronous (use an async driver in the configured URL)
+async_engine = get_async_engine(
+    alias="primary", dialect="postgresql", config_path="db_config.json"
+)
+
+async def fetch_value() -> int:
+    async with async_engine.connect() as connection:
+        result = await connection.exec_driver_sql("SELECT 1")
+        return result.scalar_one()
+```
+
+For ORM work, create a session per unit of work. Sessions and checked-out connections should not be shared between concurrent threads or async tasks. The session factories below are cached; each call creates a fresh session:
+
+```python
+from sqltoolkit.connection import EngineRegistry
+from sqltoolkit import get_engine, get_async_engine
+
+sync_engine = get_engine(alias="primary", config_path="db_config.json")
+SyncSession = EngineRegistry.get_sessionmaker(
+    key="primary", engine=sync_engine, expire_on_commit=False
+)
+
+with SyncSession.begin() as session:
+    # session.add(...), session.execute(...)
+    ...
+
+async_engine = get_async_engine(alias="primary", config_path="db_config.json")
+AsyncSession = EngineRegistry.get_async_sessionmaker(
+    key="primary", engine=async_engine, expire_on_commit=False
+)
+
+async def update_data() -> None:
+    async with AsyncSession.begin() as session:
+        # await session.execute(...)
+        ...
+```
+
+`Session.begin()` and `AsyncSession.begin()` commit on successful exit and roll back if an exception occurs. If you use `session_factory()` or `async_session_factory()` to get an individual session, close it with `with session:` or `async with session:` (or call `close()` / `await close()`) so checked-out connections are returned promptly. Dispose engines during application shutdown when they are no longer needed; async applications should use SQLAlchemy's `await async_engine.dispose()`.
+
+Reuse guidance:
+
+- **Call repeatedly:** engine getters, `EngineRegistry.get_sessionmaker()`, and `EngineRegistry.get_async_sessionmaker()` with the same key, engine, and options. The getters return cached objects. Calling `SessionMaker()` or `AsyncSessionMaker()` repeatedly is also expected; each call returns a new session.
+- **Use briefly, then close:** each `engine.connect()` / `async_engine.connect()` checkout and each `Session` / `AsyncSession`. Do not keep them in global variables or share them between concurrent work. Context managers close them when the block ends.
+- **Call at shutdown or when retiring a database:** `engine.dispose()` / `await async_engine.dispose()` releases the pool's connections. The engine object can open new connections after disposal, so disposal is cleanup, not a permanent invalidation. `EngineRegistry.dispose_engine(...)` removes the cached entry; the next getter call can create a new engine. Use `EngineRegistry.dispose_all()` outside an event loop, or `await EngineRegistry.adispose_all()` in async code. These are intended for application shutdown or tests, not for each request.
 
 Supported structured fields by dialect:
 
@@ -106,23 +366,21 @@ Common file-config extras:
 - `engine_options`: SQLAlchemy `create_engine` / `create_async_engine` kwargs
 - `options`: alias for `engine_options` in file configs
 
-### 3. File-based configuration
+### 4. Explicit file helpers
 
 ```python
 from sqltoolkit.connection import get_engine_from_file, get_async_engine_from_file
 
 engine = get_engine_from_file(
+    alias="test",
     dialect="postgresql",
-    tenant="default",
     config_path="db_config.json",
-    access_mode="readwrite",
 )
 
 async_engine = get_async_engine_from_file(
+    alias="test",
     dialect="postgresql",
-    tenant="default",
     config_path="db_config.ini",
-    access_mode="readonly",
 )
 ```
 
@@ -132,27 +390,15 @@ Example JSON:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "readwrite": {
-          "username": "user",
-          "password": "password",
-          "host": "localhost",
-          "port": 5432,
-          "database": "app",
-          "pool_size": 10,
-          "max_overflow": 20,
-          "pool_pre_ping": true
-        },
-        "readonly": {
-          "username": "readonly",
-          "password": "password",
-          "host": "localhost",
-          "port": 5432,
-          "database": "app",
-          "pool_size": 5,
-          "max_overflow": 10,
-          "pool_pre_ping": true
-        }
+      "test": {
+        "username": "user",
+        "password": "password",
+        "host": "localhost",
+        "port": 5432,
+        "database": "app",
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_pre_ping": true
       }
     }
   }
@@ -162,7 +408,7 @@ Example JSON:
 Example INI:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.test]
 username = user
 password = password
 host = localhost
@@ -170,16 +416,6 @@ port = 5432
 database = app
 pool_size = 10
 max_overflow = 20
-pool_pre_ping = true
-
-[databases.postgresql.default.readonly]
-username = readonly
-password = password
-host = localhost
-port = 5432
-database = app
-pool_size = 5
-max_overflow = 10
 pool_pre_ping = true
 ```
 
@@ -189,16 +425,14 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "readwrite": {
-          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
-          "database_options": {
-            "application_name": "sqltoolkit"
-          },
-          "engine_options": {
-            "pool_recycle": 1800,
-            "pool_use_lifo": true
-          }
+      "test": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+        "database_options": {
+          "application_name": "sqltoolkit"
+        },
+        "engine_options": {
+          "pool_recycle": 1800,
+          "pool_use_lifo": true
         }
       }
     }
@@ -209,13 +443,13 @@ JSON with `db_url`, database options, and SQLAlchemy engine options:
 INI with `db_url`, database options, and SQLAlchemy engine options:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.readwrite.database_options]
+[databases.postgresql.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.readwrite.engine_options]
+[databases.postgresql.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -234,36 +468,34 @@ PostgreSQL sample JSON:
 {
   "databases": {
     "postgresql": {
-      "default": {
-        "readwrite": {
-          "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
-          "database_options": {
-            "application_name": "sqltoolkit"
-          },
-          "session_settings": {
-            "search_path": "app, public",
-            "statement_timeout": "30000",
-            "lock_timeout": "5000",
-            "idle_in_transaction_session_timeout": "60000",
-            "deadlock_timeout": "1000",
-            "default_transaction_isolation": "read committed",
-            "default_transaction_read_only": false,
-            "default_transaction_deferrable": false,
-            "jit": false,
-            "max_parallel_workers_per_gather": 2,
-            "work_mem": "64MB",
-            "maintenance_work_mem": "256MB",
-            "random_page_cost": 1.1,
-            "effective_cache_size": "4GB",
-            "log_min_duration_statement": 250,
-            "TimeZone": "UTC",
-            "DateStyle": "ISO, MDY",
-            "row_security": true
-          },
-          "engine_options": {
-            "pool_recycle": 1800,
-            "pool_use_lifo": true
-          }
+      "primary": {
+        "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+        "database_options": {
+          "application_name": "sqltoolkit"
+        },
+        "session_settings": {
+          "search_path": "app, public",
+          "statement_timeout": "30000",
+          "lock_timeout": "5000",
+          "idle_in_transaction_session_timeout": "60000",
+          "deadlock_timeout": "1000",
+          "default_transaction_isolation": "read committed",
+          "default_transaction_read_only": false,
+          "default_transaction_deferrable": false,
+          "jit": false,
+          "max_parallel_workers_per_gather": 2,
+          "work_mem": "64MB",
+          "maintenance_work_mem": "256MB",
+          "random_page_cost": 1.1,
+          "effective_cache_size": "4GB",
+          "log_min_duration_statement": 250,
+          "TimeZone": "UTC",
+          "DateStyle": "ISO, MDY",
+          "row_security": true
+        },
+        "engine_options": {
+          "pool_recycle": 1800,
+          "pool_use_lifo": true
         }
       }
     }
@@ -274,13 +506,13 @@ PostgreSQL sample JSON:
 PostgreSQL sample INI:
 
 ```ini
-[databases.postgresql.default.readwrite]
+[databases.postgresql.primary]
 db_url = postgresql+psycopg://user:password@localhost:5432/app
 
-[databases.postgresql.default.readwrite.database_options]
+[databases.postgresql.primary.database_options]
 application_name = sqltoolkit
 
-[databases.postgresql.default.readwrite.session_settings]
+[databases.postgresql.primary.session_settings]
 search_path = app, public
 statement_timeout = 30000
 lock_timeout = 5000
@@ -300,7 +532,7 @@ TimeZone = UTC
 DateStyle = ISO, MDY
 row_security = true
 
-[databases.postgresql.default.readwrite.engine_options]
+[databases.postgresql.primary.engine_options]
 pool_recycle = 1800
 pool_use_lifo = true
 ```
@@ -311,15 +543,13 @@ MySQL sample JSON:
 {
   "databases": {
     "mysql": {
-      "default": {
-        "readwrite": {
-          "db_url": "mysql+pymysql://user:password@localhost:3306/app",
-          "session_settings": {
-            "sql_mode": "STRICT_ALL_TABLES",
-            "time_zone": "+00:00",
-            "innodb_lock_wait_timeout": 10,
-            "max_execution_time": 5000
-          }
+      "primary": {
+        "db_url": "mysql+pymysql://user:password@localhost:3306/app",
+        "session_settings": {
+          "sql_mode": "STRICT_ALL_TABLES",
+          "time_zone": "+00:00",
+          "innodb_lock_wait_timeout": 10,
+          "max_execution_time": 5000
         }
       }
     }
@@ -330,10 +560,10 @@ MySQL sample JSON:
 MySQL sample INI:
 
 ```ini
-[databases.mysql.default.readwrite]
+[databases.mysql.primary]
 db_url = mysql+pymysql://user:password@localhost:3306/app
 
-[databases.mysql.default.readwrite.session_settings]
+[databases.mysql.primary.session_settings]
 sql_mode = STRICT_ALL_TABLES
 time_zone = +00:00
 innodb_lock_wait_timeout = 10
@@ -346,18 +576,16 @@ Oracle sample JSON:
 {
   "databases": {
     "oracle": {
-      "default": {
-        "readwrite": {
-          "username": "user",
-          "password": "password",
-          "host": "localhost",
-          "port": 1521,
-          "service_name": "FREEPDB1",
-          "session_settings": {
-            "time_zone": "UTC",
-            "nls_date_format": "YYYY-MM-DD",
-            "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
-          }
+      "primary": {
+        "username": "user",
+        "password": "password",
+        "host": "localhost",
+        "port": 1521,
+        "service_name": "FREEPDB1",
+        "session_settings": {
+          "time_zone": "UTC",
+          "nls_date_format": "YYYY-MM-DD",
+          "nls_timestamp_format": "YYYY-MM-DD HH24:MI:SS"
         }
       }
     }
@@ -368,14 +596,14 @@ Oracle sample JSON:
 Oracle sample INI:
 
 ```ini
-[databases.oracle.default.readwrite]
+[databases.oracle.primary]
 username = user
 password = password
 host = localhost
 port = 1521
 service_name = FREEPDB1
 
-[databases.oracle.default.readwrite.session_settings]
+[databases.oracle.primary.session_settings]
 time_zone = UTC
 nls_date_format = YYYY-MM-DD
 nls_timestamp_format = YYYY-MM-DD HH24:MI:SS
@@ -387,14 +615,12 @@ MSSQL sample JSON:
 {
   "databases": {
     "mssql": {
-      "default": {
-        "readwrite": {
-          "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
-          "session_settings": {
-            "LOCK_TIMEOUT": 5000,
-            "XACT_ABORT": true,
-            "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
-          }
+      "primary": {
+        "db_url": "mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server",
+        "session_settings": {
+          "LOCK_TIMEOUT": 5000,
+          "XACT_ABORT": true,
+          "TRANSACTION ISOLATION LEVEL": "READ COMMITTED"
         }
       }
     }
@@ -405,10 +631,10 @@ MSSQL sample JSON:
 MSSQL sample INI:
 
 ```ini
-[databases.mssql.default.readwrite]
+[databases.mssql.primary]
 db_url = mssql+pyodbc://user:password@localhost:1433/app?driver=ODBC+Driver+18+for+SQL+Server
 
-[databases.mssql.default.readwrite.session_settings]
+[databases.mssql.primary.session_settings]
 LOCK_TIMEOUT = 5000
 XACT_ABORT = true
 TRANSACTION ISOLATION LEVEL = READ COMMITTED
@@ -420,14 +646,12 @@ SQLite sample JSON:
 {
   "databases": {
     "sqlite": {
-      "default": {
-        "readwrite": {
-          "file_path": "./app.db",
-          "session_settings": {
-            "foreign_keys": true,
-            "journal_mode": "WAL",
-            "busy_timeout": 5000
-          }
+      "primary": {
+        "file_path": "./app.db",
+        "session_settings": {
+          "foreign_keys": true,
+          "journal_mode": "WAL",
+          "busy_timeout": 5000
         }
       }
     }
@@ -438,10 +662,10 @@ SQLite sample JSON:
 SQLite sample INI:
 
 ```ini
-[databases.sqlite.default.readwrite]
+[databases.sqlite.primary]
 file_path = ./app.db
 
-[databases.sqlite.default.readwrite.session_settings]
+[databases.sqlite.primary.session_settings]
 foreign_keys = true
 journal_mode = WAL
 busy_timeout = 5000
@@ -450,7 +674,7 @@ busy_timeout = 5000
 ## Notes
 
 - Sync and async engines are cached separately.
-- Readonly and readwrite engines are cached separately.
+- Different aliases are cached separately.
 - Reusing the same registry key with different settings raises `ValueError`.
 - You can still pass a full `db_url` if you prefer; structured fields are optional.
 - If passwords contain reserved URL characters such as `@`, `:`, `/`, `#`, `%`, or spaces, prefer structured fields like `username` and `password` instead of a raw `db_url`. Structured config is encoded safely for you.
@@ -538,9 +762,9 @@ sqltoolkit/dialects/<dialect>/
 
 Oracle currently includes concrete implementations in those folders, and the other dialects include the same package structure so custom fields and functions can be added consistently.
 
-Sample configuration files for every supported dialect are available in [examples/configs](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs). Commentary for those examples is in [examples/configs/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/configs/README.md).
+Sample configuration files for every supported dialect are available in [examples/configs](examples/configs). Commentary for those examples is in [examples/configs/README.md](examples/configs/README.md).
 
-Sample environment files for every supported dialect are available in [examples/env-sample](/Users/amogha/PycharmProjects/sqltoolkit/examples/env-sample). Notes for those examples are in [examples/env-sample/README.md](/Users/amogha/PycharmProjects/sqltoolkit/examples/env-sample/README.md).
+Sample environment files for every supported dialect are available in [examples/env-sample](examples/env-sample). Notes for those examples are in [examples/env-sample/README.md](examples/env-sample/README.md).
 
 ## Registry Operations
 
@@ -548,14 +772,23 @@ Sample environment files for every supported dialect are available in [examples/
 from sqltoolkit.connection import EngineRegistry
 
 EngineRegistry.list_registry_keys()
-EngineRegistry.get_engine_config("postgresql:tenantA:readwrite:sync")
+EngineRegistry.get_engine_config("postgresql:test:sync")
 EngineRegistry.set_max_entries(512)
 EngineRegistry.get_registry_size()
 EngineRegistry.get_registry_stats()
-EngineRegistry.dispose_engine(key="default", access_mode="readwrite", async_mode=False)
-EngineRegistry.dispose_registry_key("postgresql:tenantA:readonly:async")
+EngineRegistry.dispose_engine(key="default", async_mode=False)
 EngineRegistry.dispose_all()
 ```
+
+When disposing async engines from within an active event loop, use the async cleanup methods:
+
+```python
+await EngineRegistry.adispose_registry_key("postgresql:test:async")
+await EngineRegistry.adispose_all()
+await EngineRegistry.adispose_engine(key="default", async_mode=True)
+```
+
+The synchronous `dispose_all()` method runs async engine disposal when called outside an event loop. It raises a clear error inside a running loop so async connections are not closed through SQLAlchemy's synchronous proxy.
 
 `get_registry_stats()` returns:
 
@@ -575,5 +808,6 @@ EngineRegistry.dispose_all()
 
 - The registry is process-local. If a process fork is detected, inherited engine entries are cleared and disposed before reuse.
 - The registry uses LRU eviction with a default cap of `256` cached engines. Override this with `EngineRegistry.set_max_entries(...)` or `SQLTOOLKIT_REGISTRY_MAX_ENTRIES`.
-- Engine creation failures are cached briefly per registry key and config fingerprint. The default failure backoff is `5` seconds and can be overridden with `SQLTOOLKIT_REGISTRY_FAILURE_TTL`.
+- Engine construction and database connection establishment failures are cached briefly per registry key and config fingerprint. The default failure backoff is `5` seconds and can be overridden with `SQLTOOLKIT_REGISTRY_FAILURE_TTL`.
+- Failure records use process-local memory by default. Set `SQLTOOLKIT_FAILURE_BACKEND=none` to disable failure caching. Supported values are `memory` and `none`.
 - Engine creation uses double-checked locking. Under contention, duplicate engines may be created transiently and one will be disposed immediately after registration loses the race.

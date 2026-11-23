@@ -9,6 +9,7 @@ from sqlalchemy.engine import URL
 from sqltoolkit.dialects._shared import (
     ensure_empty,
     pop_bool,
+    render_url,
     sql_quote_string,
     stringify_query,
     stringify_setting_value,
@@ -22,6 +23,7 @@ def build_sqlite_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build a SQLite SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or ("aiosqlite" if async_mode else "pysqlite")
     file_path = config.pop("file_path", None)
     database = config.pop("database", None)
@@ -42,14 +44,15 @@ def build_sqlite_url(
 
     ensure_empty(config, "sqlite")
 
-    return URL.create(
+    return render_url(URL.create(
         drivername=f"sqlite+{driver}",
         database=str(database_name),
         query=stringify_query(query),
-    ).render_as_string(hide_password=False)
+    ))
 
 
 def build_sqlite_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build SQLite PRAGMA setup statements."""
     statements: list[str] = []
     for name, value in settings.items():
         pragma_name = validate_setting_name(str(name), dialect="sqlite")

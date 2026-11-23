@@ -162,5 +162,5 @@ Common structured fields:
 ## Editing guidance
 
 - Treat repository code as canonical if a reference file and implementation disagree.
-- For behavior changes, update examples in `README.md`.
+- For behavior changes, update examples in `../../../../../README.md`.
 - When adding new dialect fields, update parsing, URL construction, and public docs together.

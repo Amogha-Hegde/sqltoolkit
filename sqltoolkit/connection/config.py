@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import importlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -16,22 +17,26 @@ from sqltoolkit.dialects import (
     normalize_dialect,
 )
 
-DEFAULT_ACCESS_MODE = "readwrite"
-VALID_ACCESS_MODES = frozenset({"readonly", "readwrite"})
+DEFAULT_ALIAS = "default"
 
 ENV_PREFIX = "SQLTOOLKIT"
+SETTINGS_BACKEND_ENV = "SQLTOOLKIT_SETTINGS_BACKEND"
 
 
 @dataclass(frozen=True)
 class EngineConfig:
+    """Normalized SQLAlchemy engine configuration."""
+
     url: str
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
     on_connect_statements: tuple[str, ...] = field(default_factory=tuple)
 
     def to_engine_kwargs(self) -> dict[str, Any]:
+        """Return keyword arguments accepted by SQLAlchemy engine factories."""
         return {"url": self.url, **self.engine_kwargs}
 
     def fingerprint(self) -> tuple[Any, ...]:
+        """Return a hashable representation used to compare cached engines."""
         return (
             self.url,
             _freeze_value(self.engine_kwargs),
@@ -39,38 +44,37 @@ class EngineConfig:
         )
 
 
-def normalize_access_mode(access_mode: str) -> str:
-    normalized = access_mode.strip().lower()
-    if normalized not in VALID_ACCESS_MODES:
-        valid = ", ".join(sorted(VALID_ACCESS_MODES))
-        raise ValueError(f"Unsupported access_mode '{access_mode}'. Valid values: {valid}")
+def normalize_alias(alias: str) -> str:
+    """Normalize a database alias for env/file lookup and registry keys."""
+    normalized = str(alias).strip().lower()
+    if not normalized:
+        raise ValueError("alias must not be empty")
     return normalized
 
 
 def build_registry_key(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool,
 ) -> str:
+    """Build the canonical cache key for dialect, alias, and interface."""
     interface = "async" if async_mode else "sync"
-    return f"{dialect}:{tenant}:{access_mode}:{interface}"
+    return f"{dialect}:{alias}:{interface}"
 
 
 def load_config_from_env(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> EngineConfig:
+    """Load an engine configuration from SQLTOOLKIT environment variables."""
     source = os.environ if env is None else env
     dialect = normalize_dialect(dialect)
-    access_mode = normalize_access_mode(access_mode)
-    tenant_name = tenant.strip() or "default"
-    prefix = _build_env_prefix(dialect=dialect, tenant=tenant_name, access_mode=access_mode)
+    alias = normalize_alias(alias)
+    prefix = _build_env_prefix(dialect=dialect, alias=alias)
     raw_config = _load_env_mapping(source, prefix)
     if not raw_config:
         raise KeyError(f"No environment configuration found for prefix '{prefix}'")
@@ -80,31 +84,67 @@ def load_config_from_env(
 def load_config_from_file(
     *,
     dialect: str,
-    tenant: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool = False,
     config_path: str | os.PathLike[str],
 ) -> EngineConfig:
+    """Load an engine configuration from a JSON or INI config file."""
     dialect = normalize_dialect(dialect)
-    access_mode = normalize_access_mode(access_mode)
-    tenant_name = tenant.strip() or "default"
+    alias = normalize_alias(alias)
 
     config_data = _read_config_file(config_path)
     try:
-        tenant_config = config_data["databases"][dialect][tenant_name][access_mode]
+        alias_config = config_data["databases"][dialect][alias]
     except KeyError as exc:
         raise KeyError(
             "Missing database config for "
-            f"dialect='{dialect}', tenant='{tenant_name}', access_mode='{access_mode}'"
+            f"dialect='{dialect}', alias='{alias}'"
         ) from exc
 
-    if not isinstance(tenant_config, dict):
+    if not isinstance(alias_config, dict):
         raise ValueError("Database config entry must be a mapping")
 
     return build_engine_config(
         dialect=dialect,
         async_mode=async_mode,
-        raw_config=_normalize_file_config_entry(tenant_config),
+        raw_config=_normalize_file_config_entry(alias_config),
+    )
+
+
+def load_config_from_settings(
+    *,
+    dialect: str,
+    alias: str,
+    async_mode: bool = False,
+    module_path: str | None = None,
+) -> EngineConfig:
+    """Load configuration from the module named by SQLTOOLKIT_SETTINGS_BACKEND.
+
+    The module must define ``DATABASES``, a mapping of dialect -> alias ->
+    config, using the same entry shape as a file's ``databases`` mapping.
+    """
+    module_path = module_path or os.environ.get(SETTINGS_BACKEND_ENV)
+    if not module_path or not module_path.strip():
+        raise ValueError(f"{SETTINGS_BACKEND_ENV} must name an importable Python module")
+    module = importlib.import_module(module_path.strip())
+    databases = getattr(module, "DATABASES", None)
+    if not isinstance(databases, Mapping):
+        raise ValueError(f"Settings module '{module_path}' must define DATABASES as a mapping")
+    dialect_name = normalize_dialect(dialect)
+    alias_name = normalize_alias(alias)
+    try:
+        alias_config = databases[dialect_name][alias_name]
+    except (KeyError, TypeError) as exc:
+        raise KeyError(
+            f"Missing database config for dialect='{dialect_name}', alias='{alias_name}' "
+            f"in settings module '{module_path}'"
+        ) from exc
+    if not isinstance(alias_config, Mapping):
+        raise ValueError("Database config entry must be a mapping")
+    return build_engine_config(
+        dialect=dialect_name,
+        async_mode=async_mode,
+        raw_config=_normalize_file_config_entry(alias_config),
     )
 
 
@@ -124,6 +164,7 @@ def config_from_kwargs(
     async_mode: bool = False,
     **dialect_options: Any,
 ) -> EngineConfig:
+    """Create an engine configuration from direct keyword arguments."""
     if not db_url and not dialect:
         raise ValueError("Either db_url or dialect is required")
 
@@ -155,6 +196,7 @@ def build_engine_config(
     async_mode: bool,
     raw_config: Mapping[str, Any],
 ) -> EngineConfig:
+    """Normalize raw config data into a validated EngineConfig."""
     data = dict(raw_config)
     on_connect_statements = _extract_on_connect_statements(
         dialect=dialect,
@@ -172,6 +214,7 @@ def build_engine_config(
 
 
 def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply file-config aliases before building an engine configuration."""
     data = dict(raw_config)
 
     if "url" in data and "db_url" not in data:
@@ -190,18 +233,19 @@ def _normalize_file_config_entry(raw_config: Mapping[str, Any]) -> dict[str, Any
     return data
 
 
-def _build_env_prefix(*, dialect: str, tenant: str, access_mode: str) -> str:
-    return "__".join(
+def _build_env_prefix(*, dialect: str, alias: str) -> str:
+    """Build the environment variable prefix for one database alias."""
+    return "_".join(
         [
             ENV_PREFIX,
             dialect.upper(),
-            tenant.upper(),
-            access_mode.upper(),
+            alias.upper(),
         ]
     )
 
 
 def _read_config_file(config_path: str | os.PathLike[str]) -> dict[str, Any]:
+    """Read a JSON or INI config file into the shared nested mapping shape."""
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -221,33 +265,34 @@ def _read_config_file(config_path: str | os.PathLike[str]) -> dict[str, Any]:
 
 
 def _read_ini_config(raw: str) -> dict[str, Any]:
+    """Parse INI config sections into the same nested shape as JSON config."""
     parser = configparser.ConfigParser(interpolation=None)
     parser.read_string(raw)
 
     data: dict[str, Any] = {}
     for section_name in parser.sections():
         section_path = section_name.split(".")
-        if len(section_path) in {3, 4} and section_path[0] != "databases":
+        if len(section_path) in {2, 3} and section_path[0] != "databases":
             section_path = ["databases", *section_path]
-        if len(section_path) not in {4, 5} or section_path[0] != "databases":
+        if len(section_path) not in {3, 4} or section_path[0] != "databases":
             raise ValueError(
                 "INI sections must look like "
-                "'[databases.<dialect>.<tenant>.<access_mode>]', "
-                "'[<dialect>.<tenant>.<access_mode>]', "
+                "'[databases.<dialect>.<alias>]', "
+                "'[<dialect>.<alias>]', "
                 "or those paths with a trailing '.database_options', '.options', '.query', or '.connect_args'"
                 " or '.session_settings'"
             )
 
         current = data
-        for part in section_path[:4]:
+        for part in section_path[:3]:
             current = current.setdefault(part, {})
 
-        if len(section_path) == 4:
+        if len(section_path) == 3:
             section_data = _coerce_ini_section(dict(parser.items(section_name)))
             current.update(section_data)
             continue
 
-        subsection = section_path[4].lower()
+        subsection = section_path[3].lower()
         mapped_key = {
             "database_options": "database_options",
             "query": "query",
@@ -270,6 +315,7 @@ def _read_ini_config(raw: str) -> dict[str, Any]:
 
 
 def _coerce_ini_section(section_data: Mapping[str, str]) -> dict[str, Any]:
+    """Coerce scalar values from a top-level INI database section."""
     result: dict[str, Any] = {}
     int_keys = {"port", "pool_size", "max_overflow"}
     bool_keys = {"pool_pre_ping", "echo", "in_memory"}
@@ -299,10 +345,12 @@ def _coerce_ini_section(section_data: Mapping[str, str]) -> dict[str, Any]:
 
 
 def _coerce_ini_mapping(section_data: Mapping[str, str]) -> dict[str, Any]:
+    """Coerce scalar values from a nested INI subsection."""
     return {key: _coerce_ini_scalar(value) for key, value in section_data.items()}
 
 
 def _coerce_ini_scalar(value: str) -> Any:
+    """Convert an INI scalar to bool, number, JSON value, or raw text."""
     stripped = value.strip()
     if not stripped:
         return value
@@ -316,6 +364,7 @@ def _coerce_ini_scalar(value: str) -> Any:
 
 
 def _require_env(env: Mapping[str, str], name: str) -> str:
+    """Return a required environment variable or raise KeyError."""
     value = env.get(name)
     if value in (None, ""):
         raise KeyError(f"Required environment variable '{name}' is not set")
@@ -323,11 +372,13 @@ def _require_env(env: Mapping[str, str], name: str) -> str:
 
 
 def _int_env(env: Mapping[str, str], name: str, default: int) -> int:
+    """Read an integer environment variable with a default."""
     value = env.get(name)
     return default if value in (None, "") else int(value)
 
 
 def _bool_env(env: Mapping[str, str], name: str, default: bool) -> bool:
+    """Read a boolean environment variable with a default."""
     value = env.get(name)
     if value in (None, ""):
         return default
@@ -335,6 +386,7 @@ def _bool_env(env: Mapping[str, str], name: str, default: bool) -> bool:
 
 
 def _json_env(env: Mapping[str, str], name: str, default: dict[str, Any]) -> dict[str, Any]:
+    """Read a JSON-object environment variable with a default."""
     value = env.get(name)
     if value in (None, ""):
         return default
@@ -345,6 +397,7 @@ def _json_env(env: Mapping[str, str], name: str, default: dict[str, Any]) -> dic
 
 
 def _coerce_bool(value: Any) -> bool:
+    """Coerce common string and scalar representations to bool."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -353,100 +406,101 @@ def _coerce_bool(value: Any) -> bool:
 
 
 def _load_env_mapping(env: Mapping[str, str], prefix: str) -> dict[str, Any]:
+    """Collect supported SQLTOOLKIT variables for one prefix into raw config."""
     data: dict[str, Any] = {}
 
-    db_url = env.get(f"{prefix}__DB_URL") or env.get(f"{prefix}__URL")
+    db_url = env.get(f"{prefix}_DB_URL") or env.get(f"{prefix}_URL")
     if db_url:
         data["db_url"] = db_url
 
-    driver = env.get(f"{prefix}__DRIVER")
+    driver = env.get(f"{prefix}_DRIVER")
     if driver:
         data["driver"] = driver
 
-    username = env.get(f"{prefix}__USERNAME") or env.get(f"{prefix}__USER")
+    username = env.get(f"{prefix}_USERNAME") or env.get(f"{prefix}_USER")
     if username:
         data["username"] = username
 
-    password = env.get(f"{prefix}__PASSWORD")
+    password = env.get(f"{prefix}_PASSWORD")
     if password:
         data["password"] = password
 
-    host = env.get(f"{prefix}__HOST")
+    host = env.get(f"{prefix}_HOST")
     if host:
         data["host"] = host
 
-    port = env.get(f"{prefix}__PORT")
+    port = env.get(f"{prefix}_PORT")
     if port:
         data["port"] = int(port)
 
-    database = env.get(f"{prefix}__DATABASE") or env.get(f"{prefix}__DBNAME")
+    database = env.get(f"{prefix}_DATABASE") or env.get(f"{prefix}_DBNAME")
     if database:
         data["database"] = database
 
-    file_path = env.get(f"{prefix}__FILE_PATH")
+    file_path = env.get(f"{prefix}_FILE_PATH")
     if file_path:
         data["file_path"] = file_path
 
-    service_name = env.get(f"{prefix}__SERVICE_NAME")
+    service_name = env.get(f"{prefix}_SERVICE_NAME")
     if service_name:
         data["service_name"] = service_name
 
-    sid = env.get(f"{prefix}__SID")
+    sid = env.get(f"{prefix}_SID")
     if sid:
         data["sid"] = sid
 
-    dsn = env.get(f"{prefix}__DSN")
+    dsn = env.get(f"{prefix}_DSN")
     if dsn:
         data["dsn"] = dsn
 
-    dsn_name = env.get(f"{prefix}__DSN_NAME")
+    dsn_name = env.get(f"{prefix}_DSN_NAME")
     if dsn_name:
         data["dsn_name"] = dsn_name
 
-    odbc_connect = env.get(f"{prefix}__ODBC_CONNECT")
+    odbc_connect = env.get(f"{prefix}_ODBC_CONNECT")
     if odbc_connect:
         data["odbc_connect"] = odbc_connect
 
-    odbc_driver = env.get(f"{prefix}__ODBC_DRIVER")
+    odbc_driver = env.get(f"{prefix}_ODBC_DRIVER")
     if odbc_driver:
         data["odbc_driver"] = odbc_driver
 
-    charset = env.get(f"{prefix}__CHARSET")
+    charset = env.get(f"{prefix}_CHARSET")
     if charset:
         data["charset"] = charset
 
-    if f"{prefix}__IN_MEMORY" in env:
-        data["in_memory"] = _bool_env(env, f"{prefix}__IN_MEMORY", False)
+    if f"{prefix}_IN_MEMORY" in env:
+        data["in_memory"] = _bool_env(env, f"{prefix}_IN_MEMORY", False)
 
-    if f"{prefix}__POOL_SIZE" in env:
-        data["pool_size"] = _int_env(env, f"{prefix}__POOL_SIZE", 5)
-    if f"{prefix}__MAX_OVERFLOW" in env:
-        data["max_overflow"] = _int_env(env, f"{prefix}__MAX_OVERFLOW", 10)
-    if f"{prefix}__POOL_PRE_PING" in env:
-        data["pool_pre_ping"] = _bool_env(env, f"{prefix}__POOL_PRE_PING", True)
-    if f"{prefix}__ECHO" in env:
-        data["echo"] = _bool_env(env, f"{prefix}__ECHO", False)
+    if f"{prefix}_POOL_SIZE" in env:
+        data["pool_size"] = _int_env(env, f"{prefix}_POOL_SIZE", 5)
+    if f"{prefix}_MAX_OVERFLOW" in env:
+        data["max_overflow"] = _int_env(env, f"{prefix}_MAX_OVERFLOW", 10)
+    if f"{prefix}_POOL_PRE_PING" in env:
+        data["pool_pre_ping"] = _bool_env(env, f"{prefix}_POOL_PRE_PING", True)
+    if f"{prefix}_ECHO" in env:
+        data["echo"] = _bool_env(env, f"{prefix}_ECHO", False)
 
-    connect_args = _json_env(env, f"{prefix}__CONNECT_ARGS", {})
+    connect_args = _json_env(env, f"{prefix}_CONNECT_ARGS", {})
     if connect_args:
         data["connect_args"] = connect_args
 
-    query = _json_env(env, f"{prefix}__QUERY", {})
+    query = _json_env(env, f"{prefix}_QUERY", {})
     if query:
         data["query"] = query
 
-    database_options = _json_env(env, f"{prefix}__DATABASE_OPTIONS", {})
+    database_options = _json_env(env, f"{prefix}_DATABASE_OPTIONS", {})
     if database_options:
         data["database_options"] = database_options
 
-    engine_options = _json_env(env, f"{prefix}__ENGINE_OPTIONS", {})
-    options = _json_env(env, f"{prefix}__OPTIONS", {})
+    engine_options = _json_env(env, f"{prefix}_ENGINE_OPTIONS", {})
+    options = _json_env(env, f"{prefix}_OPTIONS", {})
     if options:
         engine_options.update(options)
     if engine_options:
         data["engine_options"] = engine_options
 
-    session_settings = _json_env(env, f"{prefix}__SESSION_SETTINGS", {})
+    session_settings = _json_env(env, f"{prefix}_SESSION_SETTINGS", {})
     if session_settings:
         data["session_settings"] = session_settings
 
@@ -458,6 +512,7 @@ def _extract_engine_kwargs(
     dialect: str,
     raw_config: dict[str, Any],
 ) -> dict[str, Any]:
+    """Extract SQLAlchemy engine keyword arguments from raw config."""
     engine_options = dict(raw_config.pop("engine_options", {}) or {})
 
     pool_option_keys = ("echo",) if dialect == "sqlite" else (
@@ -484,6 +539,7 @@ def _extract_on_connect_statements(
     dialect: str,
     raw_config: dict[str, Any],
 ) -> tuple[str, ...]:
+    """Extract per-connection session setup statements from raw config."""
     session_settings = dict(raw_config.pop("session_settings", {}) or {})
     if not session_settings:
         return ()
@@ -491,6 +547,7 @@ def _extract_on_connect_statements(
 
 
 def _infer_dialect_from_url(db_url: str | None) -> str:
+    """Infer the SQLAlchemy dialect name from a database URL."""
     if not db_url:
         raise ValueError("db_url is required to infer dialect")
     scheme = db_url.split("://", 1)[0]
@@ -501,18 +558,19 @@ def _infer_dialect_from_url(db_url: str | None) -> str:
 def build_named_registry_key(
     *,
     key: str,
-    access_mode: str,
+    alias: str,
     async_mode: bool,
 ) -> str:
+    """Build a registry key for direct EngineRegistry entries."""
     return build_registry_key(
         dialect="registry",
-        tenant=key,
-        access_mode=access_mode,
+        alias=f"{key}:{alias}",
         async_mode=async_mode,
     )
 
 
 def _validate_engine_config(config: EngineConfig) -> None:
+    """Validate normalized engine options before creating an engine."""
     pool_size = config.engine_kwargs.get("pool_size")
     if pool_size is not None and int(pool_size) < 0:
         raise ValueError("pool_size must be >= 0")
@@ -535,6 +593,7 @@ def _validate_engine_config(config: EngineConfig) -> None:
 
 
 def _freeze_value(value: Any) -> Any:
+    """Convert nested containers into comparable immutable values."""
     if isinstance(value, dict):
         return tuple(sorted((str(key), _freeze_value(val)) for key, val in value.items()))
     if isinstance(value, (list, tuple)):

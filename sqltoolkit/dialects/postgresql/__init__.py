@@ -22,6 +22,7 @@ def build_postgresql_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build a PostgreSQL SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or ("asyncpg" if async_mode else "psycopg")
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
@@ -42,6 +43,7 @@ def build_postgresql_url(
 
 
 def build_postgresql_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build PostgreSQL per-connection setup statements."""
     statements: list[str] = []
     for name, value in settings.items():
         setting_name = validate_setting_name(str(name), dialect="postgresql")

@@ -21,10 +21,10 @@ def test_sqlite_session_settings_are_applied_on_connect(tmp_path: Path) -> None:
     config_path.write_text(
         "\n".join(
             [
-                "[databases.sqlite.default.readwrite]",
+                "[databases.sqlite.readwrite]",
                 f"file_path = {db_path}",
                 "",
-                "[databases.sqlite.default.readwrite.session_settings]",
+                "[databases.sqlite.readwrite.session_settings]",
                 "foreign_keys = true",
                 "busy_timeout = 5000",
             ]
@@ -34,8 +34,7 @@ def test_sqlite_session_settings_are_applied_on_connect(tmp_path: Path) -> None:
 
     engine = get_engine_from_file(
         dialect="sqlite",
-        tenant="default",
-        access_mode="readwrite",
+        alias="readwrite",
         config_path=str(config_path),
     )
 
@@ -106,7 +105,7 @@ def test_registry_stats_and_eviction_behavior() -> None:
     assert stats["creations"] - before["creations"] == 2
     assert stats["evictions"] - before["evictions"] == 1
     assert stats["size"] == 1
-    assert keys == ["registry:sqlite-two:readwrite:sync"]
+    assert keys == ["registry:sqlite-two:default:sync"]
 
 
 @pytest.mark.unit
@@ -118,7 +117,7 @@ def test_registry_exposes_engine_config_for_existing_entry() -> None:
         session_settings={"foreign_keys": True},
     )
 
-    config = EngineRegistry.get_engine_config("registry:sqlite-config:readwrite:sync")
+    config = EngineRegistry.get_engine_config("registry:sqlite-config:default:sync")
 
     assert config is not None
     assert config.url == "sqlite+pysqlite:///:memory:"

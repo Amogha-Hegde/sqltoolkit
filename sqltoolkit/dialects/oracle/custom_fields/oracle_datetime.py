@@ -17,12 +17,14 @@ class OracleTimezoneAwareDateTime(TypeDecorator):
     cache_ok = False
 
     def __init__(self, target_timezone: str = "UTC", return_as_iso: bool = True, *args: Any, **kwargs: Any):
+        """Create a timezone-aware datetime converter."""
         super().__init__(*args, **kwargs)
         self._target_timezone_name = target_timezone
         self.target_timezone = pytz.timezone(target_timezone)
         self.return_as_iso = return_as_iso
 
     def process_bind_param(self, value: Any, dialect: Any) -> datetime | None:
+        """Normalize timezone-aware datetime values to UTC for storage."""
         if value is None:
             return None
 
@@ -39,6 +41,7 @@ class OracleTimezoneAwareDateTime(TypeDecorator):
         return value.astimezone(pytz.UTC)
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
+        """Convert database datetimes to the configured output timezone."""
         if value is None:
             return None
         if not isinstance(value, datetime):
@@ -51,6 +54,7 @@ class OracleTimezoneAwareDateTime(TypeDecorator):
         return local_time
 
     def copy(self, **kwargs: Any) -> "OracleTimezoneAwareDateTime":
+        """Copy this type decorator with SQLAlchemy-provided options."""
         return type(self)(
             target_timezone=self._target_timezone_name,
             return_as_iso=self.return_as_iso,

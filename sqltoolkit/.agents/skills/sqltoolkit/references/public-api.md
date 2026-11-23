@@ -12,8 +12,8 @@ Top-level package exports:
 
 These are re-exported from both:
 
-- `sqltoolkit/__init__.py`
-- `sqltoolkit/connection/__init__.py`
+- `../../../../__init__.py`
+- `../../../../connection/__init__.py`
 
 ## Expected usage modes
 

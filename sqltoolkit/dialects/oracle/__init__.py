@@ -40,6 +40,7 @@ def build_oracle_url(
     config: dict[str, Any],
     query: dict[str, Any],
 ) -> str:
+    """Build an Oracle SQLAlchemy URL from structured config."""
     driver = config.pop("driver", None) or "oracledb"
     username = config.pop("username", config.pop("user", None))
     password = config.pop("password", None)
@@ -79,6 +80,7 @@ def build_oracle_url(
 
 
 def build_oracle_connect_args(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Build Oracle connect_args, including direct DSN credentials."""
     data = dict(config)
     connect_args = as_mapping(data.pop("connect_args", {}))
     dsn = data.get("dsn")
@@ -96,6 +98,7 @@ def build_oracle_connect_args(config: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def build_oracle_session_statements(settings: dict[str, Any]) -> list[str]:
+    """Build Oracle ALTER SESSION setup statements."""
     statements: list[str] = []
     for name, value in settings.items():
         setting_name = validate_setting_name(str(name), dialect="oracle")

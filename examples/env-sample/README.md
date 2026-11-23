@@ -11,4 +11,10 @@ These sample `.env` files mirror the same config buckets supported by file-based
 - `ENGINE_OPTIONS`: SQLAlchemy engine/pool kwargs
 - `OPTIONS`: alias for `ENGINE_OPTIONS`
 
-Each `*.sample.env` file includes both `READWRITE` and `READONLY` examples for a single dialect.
+Each `*.sample.env` file includes both `PRIMARY` and `REPLICA` examples for a single dialect.
+
+## Failure Backoff Storage
+
+The sample files include common registry settings. Failure records are stored in process-local memory by default. Set `SQLTOOLKIT_FAILURE_BACKEND=none` to disable failure caching.
+
+`SQLTOOLKIT_REGISTRY_FAILURE_TTL` controls how long a failure is backed off.
