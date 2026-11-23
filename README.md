@@ -202,6 +202,98 @@ An engine is a process-local connection pool. Getting an engine does not usually
 
 Engine getters such as `get_engine()`, `get_async_engine()`, `get_engine_from_env()`, and the `EngineRegistry.get_engine()` methods are designed to be called repeatedly with the same key/alias and configuration: they return the cached engine. Reuse the engine for the lifetime of the application rather than creating one per request or query. Calling with the same registry key but different settings raises `ValueError`. File- and environment-based getters key the cache by dialect, alias, and sync/async mode, so use a stable alias for each database role.
 
+### Using engines with process workers
+
+The engine registry and its connection pools belong to one process. Arrange for
+each worker process to create or retrieve its engine after that worker starts.
+Avoid opening connections in a parent process before it forks. The registry
+detects a fork and clears inherited entries when the child next uses it, but
+worker startup initialization makes ownership explicit and avoids carrying
+parent-created pool state into workers.
+
+#### Gunicorn
+
+For Gunicorn, initialize the engine from application startup or a worker hook,
+not while importing the application in the master process. This also applies
+when using `preload_app = True`:
+
+```python
+# myapp/app.py (FastAPI example)
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from sqltoolkit import get_engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.db_engine = get_engine(alias="primary")
+    yield
+    app.state.db_engine.dispose()
+
+
+app = FastAPI(lifespan=lifespan)
+```
+
+Gunicorn starts the ASGI worker, then the worker runs the app lifespan. For a
+synchronous WSGI app, use Gunicorn's `post_fork` hook to initialize application
+database state in each worker. Do not call `get_engine()` at module import time
+in code that the Gunicorn master imports before forking.
+
+For example, a WSGI application's Gunicorn config can initialize a module
+after each fork:
+
+```python
+# gunicorn.conf.py
+def post_fork(server, worker):
+    from myapp.db import initialize_database
+
+    initialize_database()
+```
+
+`initialize_database()` should call `get_engine()` and store the result for
+that worker to reuse.
+
+#### Uvicorn
+
+Use the ASGI lifespan hook for initialization and cleanup. It runs in each
+server worker, including when Uvicorn starts multiple workers with
+`--workers`:
+
+```python
+# Same FastAPI lifespan pattern as above
+uvicorn.run("myapp.app:app", workers=4)
+```
+
+Keep engine acquisition out of module-level application setup; acquire it in
+lifespan or lazily inside a request dependency. Each worker then gets its own
+process-local cached engine. Use `await async_engine.dispose()` in an async
+lifespan when using `get_async_engine()`.
+
+#### Celery prefork workers
+
+With Celery's prefork pool, create database resources in the child process via
+`worker_process_init`, rather than in the parent when the Celery app is
+imported:
+
+```python
+from celery.signals import worker_process_init
+from sqltoolkit import get_engine
+
+db_engine = None
+
+
+@worker_process_init.connect
+def initialize_worker_database(**kwargs):
+    global db_engine
+    db_engine = get_engine(alias="primary")
+```
+
+Tasks in that child can reuse `db_engine`. Close individual connections and
+sessions with context managers. If you also wire cleanup to a worker shutdown
+hook, call `db_engine.dispose()` there. For Celery pools that use threads
+instead of processes, the worker shares one process-local engine as usual.
+
 For a direct connection, use a context manager so the connection returns to the pool when the block ends:
 
 ```python

@@ -365,6 +365,7 @@ def test_reset_if_forked_disposes_entries(monkeypatch: pytest.MonkeyPatch) -> No
 
 @pytest.mark.unit
 def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.delenv("SQLTOOLKIT_SETTINGS_BACKEND", raising=False)
     config = EngineConfig(url="sqlite://")
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(registry_module, "load_config_from_env", lambda **kwargs: config)
@@ -398,6 +399,38 @@ def test_env_and_file_engine_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert get_engine(dialect="sqlite", alias="readwrite", config_path="x.ini") == "SYNC"
     assert get_async_engine(dialect="sqlite", alias="readwrite", config_path="x.ini") == "ASYNC"
     assert get_async_engine_from_file(dialect="sqlite", config_path="x.ini") == "ASYNC"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_settings_backend_replaces_env_and_file_sources(
+    monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    config = EngineConfig(url="sqlite://")
+    monkeypatch.setenv("SQLTOOLKIT_SETTINGS_BACKEND", "myapp.settings")
+    monkeypatch.setattr(registry_module, "load_config_from_settings", lambda **kwargs: config)
+    monkeypatch.setattr(
+        registry_module,
+        "load_config_from_env",
+        lambda **kwargs: pytest.fail("environment config should be bypassed"),
+    )
+    monkeypatch.setattr(
+        registry_module,
+        "load_config_from_file",
+        lambda **kwargs: pytest.fail("file config should be bypassed"),
+    )
+    monkeypatch.setattr(SyncEngineRegistry, "get_or_create", lambda **kwargs: "SYNC")
+
+    if source == "env":
+        result = _get_env_engine(
+            dialect="sqlite", alias="default", async_mode=False, env={}
+        )
+    else:
+        result = _get_file_engine(
+            dialect="sqlite", alias="default", async_mode=False, config_path="missing.json"
+        )
+
+    assert result == "SYNC"
 
 
 @pytest.mark.unit

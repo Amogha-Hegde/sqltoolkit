@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import ModuleType
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,7 @@ from sqltoolkit.connection.config import (
     config_from_kwargs,
     load_config_from_env,
     load_config_from_file,
+    load_config_from_settings,
     normalize_alias,
 )
 
@@ -112,7 +115,6 @@ def test_load_config_from_file_errors(tmp_path: Path) -> None:
             alias="readwrite",
             config_path=missing_entry,
         )
-
     invalid_entry = tmp_path / "invalid.json"
     invalid_entry.write_text(
         json.dumps({"databases": {"sqlite": {"readwrite": "bad"}}}),
@@ -125,6 +127,47 @@ def test_load_config_from_file_errors(tmp_path: Path) -> None:
             config_path=invalid_entry,
         )
 
+
+@pytest.mark.unit
+def test_load_config_from_settings_builds_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = ModuleType("test_sqltoolkit_settings")
+    module.DATABASES = {
+        "sqlite": {
+            "reporting": {
+                "url": "sqlite+pysqlite:///:memory:",
+                "options": {"echo": True},
+            }
+        }
+    }
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setenv("SQLTOOLKIT_SETTINGS_BACKEND", module.__name__)
+
+    config = load_config_from_settings(dialect="SQLite", alias=" Reporting ")
+
+    assert config.url == "sqlite+pysqlite:///:memory:"
+    assert config.engine_kwargs["echo"] is True
+
+
+@pytest.mark.unit
+def test_load_config_from_settings_reports_invalid_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SQLTOOLKIT_SETTINGS_BACKEND", raising=False)
+    with pytest.raises(ValueError, match="SQLTOOLKIT_SETTINGS_BACKEND"):
+        load_config_from_settings(dialect="sqlite", alias="default")
+
+    module = ModuleType("test_sqltoolkit_invalid_settings")
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    with pytest.raises(ValueError, match="must define DATABASES"):
+        load_config_from_settings(
+            dialect="sqlite", alias="default", module_path=module.__name__
+        )
+
+    module.DATABASES = {"sqlite": {}}
+    with pytest.raises(KeyError, match="Missing database config"):
+        load_config_from_settings(
+            dialect="sqlite", alias="default", module_path=module.__name__
+        )
 
 @pytest.mark.unit
 def test_load_config_from_file_supports_custom_aliases(tmp_path: Path) -> None:
