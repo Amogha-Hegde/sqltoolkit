@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from importlib import import_module
 from typing import Any, Mapping, cast
 
@@ -23,7 +24,9 @@ from .config import (
     build_registry_key,
     load_config_from_env,
     load_config_from_file,
+    load_config_from_settings,
     normalize_alias,
+    SETTINGS_BACKEND_ENV,
 )
 from .sync.engine import SyncEngineRegistry
 from .sync.session import SyncSessionRegistry
@@ -412,12 +415,17 @@ def _get_env_engine(
     """Create or retrieve an engine from environment configuration."""
     dialect_name = normalize_dialect(dialect)
     alias_name = normalize_alias(alias)
-    config = load_config_from_env(
-        dialect=dialect_name,
-        alias=alias_name,
-        async_mode=async_mode,
-        env=env,
-    )
+    if SETTINGS_BACKEND_ENV in os.environ:
+        config = load_config_from_settings(
+            dialect=dialect_name, alias=alias_name, async_mode=async_mode
+        )
+    else:
+        config = load_config_from_env(
+            dialect=dialect_name,
+            alias=alias_name,
+            async_mode=async_mode,
+            env=env,
+        )
     registry_key = build_registry_key(
         dialect=dialect_name,
         alias=alias_name,
@@ -438,12 +446,17 @@ def _get_file_engine(
     """Create or retrieve an engine from file configuration."""
     dialect_name = normalize_dialect(dialect)
     alias_name = normalize_alias(alias)
-    config = load_config_from_file(
-        dialect=dialect_name,
-        alias=alias_name,
-        async_mode=async_mode,
-        config_path=config_path,
-    )
+    if SETTINGS_BACKEND_ENV in os.environ:
+        config = load_config_from_settings(
+            dialect=dialect_name, alias=alias_name, async_mode=async_mode
+        )
+    else:
+        config = load_config_from_file(
+            dialect=dialect_name,
+            alias=alias_name,
+            async_mode=async_mode,
+            config_path=config_path,
+        )
     registry_key = build_registry_key(
         dialect=dialect_name,
         alias=alias_name,

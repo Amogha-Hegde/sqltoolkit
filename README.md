@@ -60,6 +60,73 @@ The file config shape is:
 `test`, `primary`, `replica`, `analytics`, or `migration`. Aliases are normalized
 by trimming whitespace and lowercasing.
 
+### Settings module override
+
+Set `SQLTOOLKIT_SETTINGS_BACKEND` to the dotted Python import path of a settings
+module. The module must be importable by the Python process running sqltoolkit
+(for example, it is in the application package or on `PYTHONPATH`). Set the
+variable in the environment before starting the application:
+
+```bash
+export SQLTOOLKIT_SETTINGS_BACKEND=myapp.settings
+```
+
+PowerShell:
+
+```powershell
+$env:SQLTOOLKIT_SETTINGS_BACKEND = "myapp.settings"
+```
+
+The module becomes the complete configuration source for `get_engine()`,
+`get_async_engine()`, and the `*_from_env()` / `*_from_file()` getters. When
+set, sqltoolkit does not read the selected JSON/INI file or
+`SQLTOOLKIT__...` database variables. The module must expose `DATABASES`, a
+mapping of dialect → alias → settings, with the same per-database fields used
+in file configuration:
+
+```python
+# myapp/settings.py
+DATABASES = {
+    "postgresql": {
+        "primary": {
+            # Either provide a SQLAlchemy URL...
+            "db_url": "postgresql+psycopg://user:password@localhost:5432/app",
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True,
+            "echo": False,
+            "connect_args": {"connect_timeout": 5},
+            "engine_options": {"pool_recycle": 1800},
+            "session_settings": {"application_name": "myapp"},
+        },
+        "analytics": {
+            # ...or provide structured URL fields instead.
+            "driver": "psycopg",
+            "username": "analytics_user",
+            "password": "secret",
+            "host": "db.example.com",
+            "port": 5432,
+            "database": "analytics",
+        },
+    },
+    "sqlite": {
+        "test": {"db_url": "sqlite+pysqlite:///:memory:"},
+    },
+}
+```
+
+Choose the entry in the module with the normal getter arguments, for example
+`get_engine(alias="primary", dialect="postgresql")`. Async getters use the
+same entry and select an async SQLAlchemy driver when constructing the URL, so
+configure an async-compatible driver (such as `asyncpg`) for async usage.
+Entries can use `db_url` (or its alias `url`), dialect-specific structured
+fields, and the common extras `database_options`, `query`, `connect_args`,
+`engine_options` (or `options`), `session_settings`, and SQLAlchemy pool
+options. See [Common file-config extras](#common-file-config-extras) and
+[Structured session settings by backend](#structured-session-settings-by-backend)
+for details. If the variable is unset, existing file- and environment-based
+behavior is unchanged.
+
 ### 2. Environment-based configuration
 
 ```python

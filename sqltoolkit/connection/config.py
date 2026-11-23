@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import configparser
+import importlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from sqltoolkit.dialects import (
 DEFAULT_ALIAS = "default"
 
 ENV_PREFIX = "SQLTOOLKIT"
+SETTINGS_BACKEND_ENV = "SQLTOOLKIT_SETTINGS_BACKEND"
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,43 @@ def load_config_from_file(
 
     return build_engine_config(
         dialect=dialect,
+        async_mode=async_mode,
+        raw_config=_normalize_file_config_entry(alias_config),
+    )
+
+
+def load_config_from_settings(
+    *,
+    dialect: str,
+    alias: str,
+    async_mode: bool = False,
+    module_path: str | None = None,
+) -> EngineConfig:
+    """Load configuration from the module named by SQLTOOLKIT_SETTINGS_BACKEND.
+
+    The module must define ``DATABASES``, a mapping of dialect -> alias ->
+    config, using the same entry shape as a file's ``databases`` mapping.
+    """
+    module_path = module_path or os.environ.get(SETTINGS_BACKEND_ENV)
+    if not module_path or not module_path.strip():
+        raise ValueError(f"{SETTINGS_BACKEND_ENV} must name an importable Python module")
+    module = importlib.import_module(module_path.strip())
+    databases = getattr(module, "DATABASES", None)
+    if not isinstance(databases, Mapping):
+        raise ValueError(f"Settings module '{module_path}' must define DATABASES as a mapping")
+    dialect_name = normalize_dialect(dialect)
+    alias_name = normalize_alias(alias)
+    try:
+        alias_config = databases[dialect_name][alias_name]
+    except (KeyError, TypeError) as exc:
+        raise KeyError(
+            f"Missing database config for dialect='{dialect_name}', alias='{alias_name}' "
+            f"in settings module '{module_path}'"
+        ) from exc
+    if not isinstance(alias_config, Mapping):
+        raise ValueError("Database config entry must be a mapping")
+    return build_engine_config(
+        dialect=dialect_name,
         async_mode=async_mode,
         raw_config=_normalize_file_config_entry(alias_config),
     )
